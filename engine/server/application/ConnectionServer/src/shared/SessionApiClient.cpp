@@ -33,6 +33,27 @@ namespace SessionApiClientNamespace
 	std::map<apiTrackingNumber, GameNetworkMessage *> ms_getFeaturesTrackingNumberMap;
 	std::map<apiTrackingNumber, AdjustAccountFeatureIdResponse *> ms_modifyFeatureTrackingNumberMap;
 	std::map<apiTrackingNumber, AdjustAccountFeatureIdResponse *> ms_grantFeatureTrackingNumberMap;
+	uint32 const cms_planetaryMiningDroidFeatureId = 900001;
+	int const cms_planetaryMiningDroidMaximumJobs = 3;
+	std::map<StationId, int> ms_pendingPlanetaryMiningDroidReservations;
+
+	bool isPlanetaryMiningDroidReservation(AdjustAccountFeatureIdResponse const & response)
+	{
+		return (response.getGameCode() == PlatformGameCode::SWG) && (response.getFeatureId() == cms_planetaryMiningDroidFeatureId) && (response.getNewValue() > response.getOldValue());
+	}
+
+	void clearPlanetaryMiningDroidReservation(AdjustAccountFeatureIdResponse const & response)
+	{
+		if (!isPlanetaryMiningDroidReservation(response))
+			return;
+
+		std::map<StationId, int>::iterator iter = ms_pendingPlanetaryMiningDroidReservations.find(response.getTargetStationId());
+		if (iter == ms_pendingPlanetaryMiningDroidReservations.end())
+			return;
+
+		if (--iter->second <= 0)
+			ms_pendingPlanetaryMiningDroidReservations.erase(iter);
+	}
 }
 
 using namespace SessionApiClientNamespace;
@@ -416,9 +437,19 @@ void SessionApiClient::OnGetFeatures(const apiTrackingNumber trackingNumber,
 					}
 				}
 
-				if (existingFeature)
+				int const currentCount = existingFeature ? existingFeature->GetConsumeCount() : 0;
+				bool const isPlanetaryMiningDroidReservation = (adjustAccountFeatureIdRequest->getGameCode() == PlatformGameCode::SWG) && (adjustAccountFeatureIdRequest->getFeatureId() == cms_planetaryMiningDroidFeatureId) && (adjustAccountFeatureIdRequest->getAdjustment() == 1);
+				if (isPlanetaryMiningDroidReservation && (currentCount + ms_pendingPlanetaryMiningDroidReservations[adjustAccountFeatureIdRequest->getTargetStationId()] >= cms_planetaryMiningDroidMaximumJobs))
 				{
-					int const currentCount = existingFeature->GetConsumeCount();
+					GameConnection * const gc = ConnectionServer::getGameConnection(adjustAccountFeatureIdRequest->getGameServer());
+					if (gc)
+					{
+						AdjustAccountFeatureIdResponse const response(adjustAccountFeatureIdRequest->getRequestingPlayer(), adjustAccountFeatureIdRequest->getGameServer(), adjustAccountFeatureIdRequest->getTargetPlayer(), adjustAccountFeatureIdRequest->getTargetPlayerDescription(), adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getTargetItem(), adjustAccountFeatureIdRequest->getTargetItemDescription(), adjustAccountFeatureIdRequest->getGameCode(), adjustAccountFeatureIdRequest->getFeatureId(), currentCount, currentCount, RESULT_CANCELLED, true, "PMD_ACCOUNT_JOB_LIMIT", "This account already has three active planetary mining droids.");
+						gc->send(response, true);
+					}
+				}
+				else if (existingFeature)
+				{
 					int const updatedCount = std::max(0, currentCount + adjustAccountFeatureIdRequest->getAdjustment());
 
 					LoginAPI::Feature updatedFeature;
@@ -427,12 +458,18 @@ void SessionApiClient::OnGetFeatures(const apiTrackingNumber trackingNumber,
 					updatedFeature.SetParameter("count", updatedCount);
 
 					apiTrackingNumber const tn = ModifyFeature_v2(adjustAccountFeatureIdRequest->getTargetStationId(), PlatformGameCode::getGamecodeName(adjustAccountFeatureIdRequest->getGameCode()).c_str(), *existingFeature, updatedFeature);
-					ms_modifyFeatureTrackingNumberMap[tn] = new AdjustAccountFeatureIdResponse(adjustAccountFeatureIdRequest->getRequestingPlayer(), adjustAccountFeatureIdRequest->getGameServer(), adjustAccountFeatureIdRequest->getTargetPlayer(), adjustAccountFeatureIdRequest->getTargetPlayerDescription(), adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getTargetItem(), adjustAccountFeatureIdRequest->getTargetItemDescription(), adjustAccountFeatureIdRequest->getGameCode(), adjustAccountFeatureIdRequest->getFeatureId(), currentCount, updatedCount, RESULT_SUCCESS, true);
+					AdjustAccountFeatureIdResponse * const response = new AdjustAccountFeatureIdResponse(adjustAccountFeatureIdRequest->getRequestingPlayer(), adjustAccountFeatureIdRequest->getGameServer(), adjustAccountFeatureIdRequest->getTargetPlayer(), adjustAccountFeatureIdRequest->getTargetPlayerDescription(), adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getTargetItem(), adjustAccountFeatureIdRequest->getTargetItemDescription(), adjustAccountFeatureIdRequest->getGameCode(), adjustAccountFeatureIdRequest->getFeatureId(), currentCount, updatedCount, RESULT_SUCCESS, true);
+					if (isPlanetaryMiningDroidReservation)
+						++ms_pendingPlanetaryMiningDroidReservations[adjustAccountFeatureIdRequest->getTargetStationId()];
+					ms_modifyFeatureTrackingNumberMap[tn] = response;
 				}
 				else
 				{
 					apiTrackingNumber const tn = GrantFeatureByStationID(adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getFeatureId(), PlatformGameCode::getGamecodeName(adjustAccountFeatureIdRequest->getGameCode()).c_str());
-					ms_grantFeatureTrackingNumberMap[tn] = new AdjustAccountFeatureIdResponse(adjustAccountFeatureIdRequest->getRequestingPlayer(), adjustAccountFeatureIdRequest->getGameServer(), adjustAccountFeatureIdRequest->getTargetPlayer(), adjustAccountFeatureIdRequest->getTargetPlayerDescription(), adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getTargetItem(), adjustAccountFeatureIdRequest->getTargetItemDescription(), adjustAccountFeatureIdRequest->getGameCode(), adjustAccountFeatureIdRequest->getFeatureId(), 0, std::max(0, adjustAccountFeatureIdRequest->getAdjustment()), RESULT_SUCCESS, true);
+					AdjustAccountFeatureIdResponse * const response = new AdjustAccountFeatureIdResponse(adjustAccountFeatureIdRequest->getRequestingPlayer(), adjustAccountFeatureIdRequest->getGameServer(), adjustAccountFeatureIdRequest->getTargetPlayer(), adjustAccountFeatureIdRequest->getTargetPlayerDescription(), adjustAccountFeatureIdRequest->getTargetStationId(), adjustAccountFeatureIdRequest->getTargetItem(), adjustAccountFeatureIdRequest->getTargetItemDescription(), adjustAccountFeatureIdRequest->getGameCode(), adjustAccountFeatureIdRequest->getFeatureId(), 0, std::max(0, adjustAccountFeatureIdRequest->getAdjustment()), RESULT_SUCCESS, true);
+					if (isPlanetaryMiningDroidReservation)
+						++ms_pendingPlanetaryMiningDroidReservations[adjustAccountFeatureIdRequest->getTargetStationId()];
+					ms_grantFeatureTrackingNumberMap[tn] = response;
 				}
 			}
 		}
@@ -707,6 +744,7 @@ void SessionApiClient::OnGrantFeatureByStationID(const apiTrackingNumber trackin
 				gc->send(*(i->second),true);
 			}
 
+			clearPlanetaryMiningDroidReservation(*(i->second));
 			delete i->second;
 		}
 		else
@@ -810,6 +848,7 @@ void SessionApiClient::OnModifyFeature_v2(const apiTrackingNumber trackingNumber
 			gc->send(*(i->second),true);
 		}
 
+		clearPlanetaryMiningDroidReservation(*(i->second));
 		delete i->second;
 		ms_modifyFeatureTrackingNumberMap.erase(i);
 	}
@@ -1011,6 +1050,3 @@ void SessionApiClient::NotifySessionKick(const char ** sessionList,
 }
 
 //------------------------------------------------------------------------------------------
-
-
-

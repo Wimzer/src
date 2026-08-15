@@ -12,6 +12,7 @@
 #include "serverGame/GameServer.h"
 #include "serverGame/VeteranRewardManager.h"
 #include "serverNetworkMessages/AccountFeatureIdRequest.h"
+#include "serverNetworkMessages/AdjustAccountFeatureIdRequest.h"
 #include "sharedGame/PlatformFeatureBits.h"
 #include "sharedObject/NetworkIdManager.h"
 #include "UnicodeUtils.h"
@@ -44,6 +45,7 @@ namespace ScriptMethodsVeteranNamespace
 	jboolean     JNICALL veteranCanTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL veteranTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL adjustSwgTcgAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong item, jint featureId, jint adjustment);
+	jboolean     JNICALL planetaryMiningDroidAdjustAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jint adjustment);
 }
 
 
@@ -70,6 +72,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("_veteranCanTradeInReward",                     "(JJ)Z", veteranCanTradeInReward),
 	JF("_veteranTradeInReward",                        "(JJ)V", veteranTradeInReward),
 	JF("_adjustSwgTcgAccountFeatureId",                "(JJII)V", adjustSwgTcgAccountFeatureId),
+	JF("_planetaryMiningDroidAdjustAccountFeatureId",  "(JJI)Z", planetaryMiningDroidAdjustAccountFeatureId),
 };
 
 	return JavaLibrary::registerNatives(NATIVES, sizeof(NATIVES)/sizeof(NATIVES[0]));
@@ -364,6 +367,30 @@ void JNICALL ScriptMethodsVeteranNamespace::adjustSwgTcgAccountFeatureId(JNIEnv 
 		return;
 
 	VeteranRewardManager::tcgRedemption(*playerCreature, *itemObject, featureId, adjustment);
+}
+
+// ----------------------------------------------------------------------
+
+jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidAdjustAccountFeatureId(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jint adjustment)
+{
+	// This feature is a live job counter, not an entitlement. ConnectionServer
+	// enforces the three-job reservation limit before changing the account value.
+	uint32 const planetaryMiningDroidFeatureId = 900001;
+	if ((adjustment != 1) && (adjustment != -1))
+		return JNI_FALSE;
+
+	ServerObject * const playerObject = safe_cast<ServerObject *>(NetworkIdManager::getObjectById(NetworkId(player)));
+	CreatureObject * const playerCreature = playerObject ? playerObject->asCreatureObject() : nullptr;
+	if (!playerCreature || !playerCreature->isAuthoritative())
+		return JNI_FALSE;
+
+	Client * const client = playerCreature->getClient();
+	if (!client || client->isUsingAdminLogin())
+		return JNI_FALSE;
+
+	AdjustAccountFeatureIdRequest const request(NetworkId::cms_invalid, GameServer::getInstance().getProcessId(), playerCreature->getNetworkId(), std::string(), static_cast<StationId>(client->getStationId()), NetworkId(callbackTarget), std::string(), PlatformGameCode::SWG, planetaryMiningDroidFeatureId, adjustment);
+	client->sendToConnectionServer(request);
+	return JNI_TRUE;
 }
 
 // ======================================================================

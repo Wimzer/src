@@ -5568,6 +5568,18 @@ void ServerObject::handleCMessageTo(const MessageToPayload &message)
 					VeteranRewardManager::handleTcgRedemptionResponse(*this, msg);
 				else if ((msg.getGameCode() == PlatformGameCode::SWG) && VeteranRewardManager::isTradeInRewardFeatureId(msg.getFeatureId()) && !msg.getTargetPlayerDescription().empty() && !msg.getTargetItemDescription().empty())
 					VeteranRewardManager::handleTradeInResponse(*this, msg);
+				else if ((msg.getGameCode() == PlatformGameCode::SWG) && (msg.getFeatureId() == 900001))
+				{
+					ScriptParams params;
+					params.addParam(msg.getResultCode() == RESULT_SUCCESS, "success");
+					ScriptDictionaryPtr dictionary;
+					GameScriptObject::makeScriptDictionary(params, dictionary);
+					if (dictionary.get() != nullptr)
+					{
+						dictionary->serialize();
+						MessageToQueue::getInstance().sendMessageToJava(getNetworkId(), "handlePlanetaryMiningDroidAccountFeatureResponse", dictionary->getSerializedData(), 0, false);
+					}
+				}
 			}
 		}
 	}
@@ -8618,4 +8630,3 @@ namespace Archive
 }
 
 // ======================================================================
-
