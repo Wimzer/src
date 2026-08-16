@@ -5573,7 +5573,6 @@ void ServerObject::handleCMessageTo(const MessageToPayload &message)
 				{
 					ScriptParams params;
 					params.addParam(msg.getResultCode() == RESULT_SUCCESS, "success");
-					params.addParam(msg.getOldValue(), "oldValue");
 					params.addParam(msg.getNewValue(), "newValue");
 					ScriptDictionaryPtr dictionary;
 					GameScriptObject::makeScriptDictionary(params, dictionary);
