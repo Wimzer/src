@@ -76,6 +76,7 @@
 #include "serverNetworkMessages/UnloadObjectMessage.h"
 #include "serverPathfinding/ServerPathfindingConstants.h"
 #include "serverScript/GameScriptObject.h"
+#include "serverScript/ScriptDictionary.h"
 #include "serverScript/ScriptParameters.h"
 #include "serverUtility/ChatLogManager.h"
 #include "serverUtility/ServerClock.h"
