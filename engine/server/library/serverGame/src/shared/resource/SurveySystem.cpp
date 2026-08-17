@@ -39,23 +39,66 @@ SurveySystem::~SurveySystem()
 
 void SurveySystem::requestResourceListForSurvey(const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName) const
 {
-	NonCriticalTaskQueue::getInstance().addTask(new TaskGetResourceList(playerId, surveyTool, parentResourceClassName));
+	requestResourceListForSurvey(playerId, surveyTool, parentResourceClassName, ServerWorld::getSceneId());
+}
+
+// ----------------------------------------------------------------------
+
+void SurveySystem::requestResourceListForSurvey(const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName, const std::string &planetName) const
+{
+	NonCriticalTaskQueue::getInstance().addTask(new TaskGetResourceList(playerId, surveyTool, parentResourceClassName, planetName));
 }
 
 // ----------------------------------------------------------------------
 
 void SurveySystem::requestSurvey(const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const Vector &location, int surveyRange, int numPoints) const
 {
-	NonCriticalTaskQueue::getInstance().addTask(new TaskSurvey(playerId, parentResourceClassName, resourceTypeName, location, surveyRange, numPoints));
+	requestSurvey(playerId, parentResourceClassName, resourceTypeName, ServerWorld::getSceneId(), location, surveyRange, numPoints);
+}
+
+// ----------------------------------------------------------------------
+
+void SurveySystem::requestSurvey(const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const
+{
+	NonCriticalTaskQueue::getInstance().addTask(new TaskSurvey(playerId, parentResourceClassName, resourceTypeName, planetName, location, surveyRange, numPoints));
+}
+
+// ----------------------------------------------------------------------
+
+bool SurveySystem::collectSurveyValues(const std::string &planetName, const NetworkId &resourceTypeId, const Vector &location, int surveyRange, int numPoints, std::vector<float> &values) const
+{
+	values.clear();
+	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeById(resourceTypeId);
+	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(planetName);
+	ResourcePoolObject const * const pool = typeObj && planet ? typeObj->getPoolForPlanet(*planet) : nullptr;
+	if (!pool)
+		return false;
+
+	int const distBetweenPoints = surveyRange / (numPoints - 1); // -1 is so that we get points at both ends
+	int const radius = surveyRange / 2;
+	values.reserve(numPoints * numPoints);
+	for (float x = location.x - radius; x <= location.x + radius; x += distBetweenPoints)
+		for (float z = location.z - radius; z <= location.z + radius; z += distBetweenPoints)
+			values.push_back(pool->getEfficiencyAtLocation(x, z));
+
+	return true;
 }
 
 // ======================================================================
 
-SurveySystem::TaskGetResourceList::TaskGetResourceList(const NetworkId &playerId, const NetworkId& surveyTool, const std::string &parentResourceClassName) :
-		m_playerId(playerId),
-		m_surveyTool(surveyTool),
-		m_parentResourceClassName(new std::string(parentResourceClassName))
+SurveySystem::TaskGetResourceList::TaskGetResourceList(const NetworkId &playerId, const NetworkId& surveyTool, const std::string &parentResourceClassName, const std::string &planetName) :
+	m_playerId(playerId),
+	m_surveyTool(surveyTool),
+	m_parentResourceClassName(new std::string(parentResourceClassName)),
+	m_planetName(new std::string(planetName))
 {
+}
+
+// ----------------------------------------------------------------------
+
+void SurveySystem::requestPmdSurvey(const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const
+{
+	NonCriticalTaskQueue::getInstance().addTask(new TaskPmdSurvey(playerId, callbackTarget, parentResourceClassName, resourceTypeName, planetName, location, surveyRange, numPoints));
 }
 
 // ----------------------------------------------------------------------
@@ -64,6 +107,8 @@ SurveySystem::TaskGetResourceList::~TaskGetResourceList()
 {
 	delete m_parentResourceClassName;
 	m_parentResourceClassName = 0;
+	delete m_planetName;
+	m_planetName = 0;
 }
 
 // ----------------------------------------------------------------------
@@ -72,11 +117,12 @@ bool SurveySystem::TaskGetResourceList::run()
 {
 	Client *client = GameServer::getInstance().getClient(m_playerId);
 	const ResourceClassObject *masterClass = ServerUniverse::getInstance().getResourceClassByName(*m_parentResourceClassName);
-	if (client && masterClass)
+	PlanetObject const *planet = ServerUniverse::getInstance().getPlanetByName(*m_planetName);
+	if (client && masterClass && planet)
 	{
 		std::vector<ResourceTypeObject const *> results;
 		std::vector<ResourceListForSurveyMessage::DataItem> sendableResults;
-		ServerUniverse::getInstance().getCurrentPlanet()->getAvailableResourceList(results,*masterClass);
+		planet->getAvailableResourceList(results,*masterClass);
 		for (std::vector<ResourceTypeObject const *>::const_iterator i=results.begin(); i!=results.end(); ++i)
 		{
 			ResourceTypeObject const * const rto = *i;
@@ -104,10 +150,11 @@ bool SurveySystem::TaskGetResourceList::run()
 
 // ======================================================================
 
-SurveySystem::TaskSurvey::TaskSurvey(const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const Vector &location, int surveyRange, int numPoints) :
-		m_playerId                (playerId),
-		m_parentResourceClassName (new std::string(parentResourceClassName)),
-		m_resourceTypeName        (new std::string(resourceTypeName)),
+SurveySystem::TaskSurvey::TaskSurvey(const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) :
+	m_playerId                (playerId),
+	m_parentResourceClassName (new std::string(parentResourceClassName)),
+	m_resourceTypeName        (new std::string(resourceTypeName)),
+	m_planetName              (new std::string(planetName)),
 		m_location                (location),
 		m_surveyRange             (surveyRange),
 		m_numPoints               (numPoints)
@@ -123,6 +170,8 @@ SurveySystem::TaskSurvey::~TaskSurvey()
 	delete m_resourceTypeName;        //lint !e605 // deleting const pointer
 	m_parentResourceClassName = 0;
 	m_resourceTypeName = 0;
+	delete m_planetName;
+	m_planetName = 0;
 }
 
 // ----------------------------------------------------------------------
@@ -132,12 +181,17 @@ bool SurveySystem::TaskSurvey::run()
 	Client const *              client            = GameServer::getInstance().getClient(m_playerId);
 	ResourceTypeObject const *  typeObj           = ServerUniverse::getInstance().getResourceTypeByName(*m_resourceTypeName);
 	ResourceClassObject const * parentClass       = ServerUniverse::getInstance().getResourceClassByName(*m_parentResourceClassName);
-	ResourcePoolObject const *  pool              = typeObj ? typeObj->getPoolForCurrentPlanet() : nullptr;
+	PlanetObject const *        planet            = ServerUniverse::getInstance().getPlanetByName(*m_planetName);
+	ResourcePoolObject const *  pool              = typeObj && planet ? typeObj->getPoolForPlanet(*planet) : nullptr;
 	int                         distBetweenPoints = m_surveyRange / (m_numPoints - 1); // -1 is so that we get points at both ends
 	int                         radius            = m_surveyRange / 2;
 	
 	if (client && typeObj && parentClass && pool && (typeObj->isDerivedFrom(*parentClass)))
 	{
+		std::vector<float> surveyValues;
+		if (!SurveySystem::getInstance().collectSurveyValues(*m_planetName, typeObj->getNetworkId(), m_location, m_surveyRange, m_numPoints, surveyValues))
+			return true;
+
 		std::vector<SurveyMessage::DataItem> surveyData;
 		SurveyMessage::DataItem item;
 
@@ -146,10 +200,11 @@ bool SurveySystem::TaskSurvey::run()
 		std::vector<float>   zVals;
 		std::vector<float>   efficiencyVals;
 		
+		size_t surveyValueIndex = 0;
 		for (item.m_location.x=m_location.x-radius; item.m_location.x<=m_location.x+radius; item.m_location.x+=distBetweenPoints)
 			for (item.m_location.z=m_location.z-radius; item.m_location.z<=m_location.z+radius; item.m_location.z+=distBetweenPoints)
 			{
-				item.m_efficiency = pool->getEfficiencyAtLocation(item.m_location.x, item.m_location.z);
+				item.m_efficiency = surveyValues[surveyValueIndex++];
 				surveyData.push_back(item);
 				DEBUG_REPORT_LOG(true,("Adding data item (%f,%f,%f) -- %f\n",item.m_location.x, item.m_location.y, item.m_location.z, item.m_efficiency));
 				xVals.push_back(item.m_location.x);
@@ -174,6 +229,85 @@ bool SurveySystem::TaskSurvey::run()
 	{
 		// TODO: Survey is not valid -- what to do?
 	}
+	return true;
+}
+
+// ======================================================================
+
+SurveySystem::TaskPmdSurvey::TaskPmdSurvey(const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) :
+	m_playerId                (playerId),
+	m_callbackTarget          (callbackTarget),
+	m_parentResourceClassName (new std::string(parentResourceClassName)),
+	m_resourceTypeName        (new std::string(resourceTypeName)),
+	m_planetName              (new std::string(planetName)),
+	m_location                (location),
+	m_surveyRange             (surveyRange),
+	m_numPoints               (numPoints)
+{
+}
+
+// ----------------------------------------------------------------------
+
+SurveySystem::TaskPmdSurvey::~TaskPmdSurvey()
+{
+	delete m_parentResourceClassName;
+	delete m_resourceTypeName;
+	delete m_planetName;
+	m_parentResourceClassName = 0;
+	m_resourceTypeName = 0;
+	m_planetName = 0;
+}
+
+// ----------------------------------------------------------------------
+
+bool SurveySystem::TaskPmdSurvey::run()
+{
+	ServerObject * const callbackTarget = ServerWorld::findObjectByNetworkId(m_callbackTarget);
+	Client const * const client = GameServer::getInstance().getClient(m_playerId);
+	std::vector<float> xVals;
+	std::vector<float> zVals;
+	std::vector<float> efficiencyVals;
+	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeByName(*m_resourceTypeName);
+	ResourceClassObject const * const parentClass = ServerUniverse::getInstance().getResourceClassByName(*m_parentResourceClassName);
+	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(*m_planetName);
+
+	if (client && callbackTarget && typeObj && parentClass && planet && typeObj->isDerivedFrom(*parentClass))
+	{
+		std::vector<ResourceTypeObject const *> availableResources;
+		planet->getAvailableResourceList(availableResources, *parentClass);
+		bool resourceIsAvailable = false;
+		for (std::vector<ResourceTypeObject const *>::const_iterator i = availableResources.begin(); i != availableResources.end(); ++i)
+		{
+			if (*i == typeObj)
+			{
+				resourceIsAvailable = true;
+				break;
+			}
+		}
+
+		if (resourceIsAvailable && SurveySystem::getInstance().collectSurveyValues(*m_planetName, typeObj->getNetworkId(), m_location, m_surveyRange, m_numPoints, efficiencyVals))
+		{
+			int const distBetweenPoints = m_surveyRange / (m_numPoints - 1);
+			int const radius = m_surveyRange / 2;
+			for (float x = m_location.x - radius; x <= m_location.x + radius; x += distBetweenPoints)
+				for (float z = m_location.z - radius; z <= m_location.z + radius; z += distBetweenPoints)
+				{
+					xVals.push_back(x);
+					zVals.push_back(z);
+				}
+
+		}
+	}
+
+	if (callbackTarget)
+	{
+		ScriptParams params;
+		params.addParam(xVals);
+		params.addParam(zVals);
+		params.addParam(efficiencyVals);
+		IGNORE_RETURN(callbackTarget->getScriptObject()->trigAllScripts(Scripting::TRIG_SURVEY_DATA_RECEIVED, params));
+	}
+
 	return true;
 }
 
