@@ -39,7 +39,9 @@ namespace ScriptMethodsResourceNamespace
 
 	void         JNICALL activateHarvesterExtractionPage (JNIEnv *env, jobject self, jlong player, jlong harvester);
 	jboolean     JNICALL requestResourceListForSurvey(JNIEnv *env, jobject self, jlong player, jlong tool, jstring parentResourceClass);
+	jboolean     JNICALL requestResourceListForSurveyAtPlanet(JNIEnv *env, jobject self, jlong player, jlong tool, jstring parentResourceClass, jstring planetName);
 	jboolean     JNICALL requestSurvey(JNIEnv *env, jobject self, jlong player, jstring parentResourceClass, jstring resourceTypeName, jint surveyRange, jint numPoints);
+	jboolean     JNICALL requestSurveyAtLocation(JNIEnv *env, jobject self, jlong player, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z, jint surveyRange, jint numPoints);
 	jlong        JNICALL pickRandomNonDepeletedResource(JNIEnv *env, jobject self, jstring parentResourceClass);
 	jint         JNICALL oneTimeHarvest(JNIEnv *env, jobject self, jlong resourceType, jint amount, jobject where);
 	jlong        JNICALL getResourceContainerResourceType(JNIEnv *env, jobject self, jlong resourceContainer);
@@ -67,6 +69,7 @@ namespace ScriptMethodsResourceNamespace
 	jboolean     JNICALL hasResourceType(JNIEnv *env, jobject self, jstring resourceClass);
 	jlong        JNICALL createResourceCrate(JNIEnv *env, jobject self, jlong resourceType, jint amount, jlong destination);
 	jobjectArray JNICALL requestResourceList(JNIEnv *env, jobject self, jobject loc, jfloat minDensity, jfloat maxDensity, jstring resourceClass);
+	jobjectArray JNICALL getAvailableResourceDensitiesForPlanetaryMiningDroid(JNIEnv *env, jobject self, jobject loc, jstring resourceClass);
 	jobjectArray JNICALL getResourceAttributes(JNIEnv *env, jobject self, jlong resourceType);
 	jobjectArray JNICALL getScaledResourceAttributes(JNIEnv *env, jobject self, jlong resourceType, jstring resourceClass);
 	jint         JNICALL getResourceAttribute(JNIEnv *env, jobject self, jlong resourceType, jstring attributeName);
@@ -85,7 +88,9 @@ const JNINativeMethod NATIVES[] = {
 	#define JF(a,b,c) {a,b,(void*)(ScriptMethodsResourceNamespace::c)}
 	JF("_activateHarvesterExtractionPage", "(JJ)V", activateHarvesterExtractionPage),
 	JF("_requestResourceListForSurvey","(JJLjava/lang/String;)Z",requestResourceListForSurvey),
+	JF("_requestResourceListForSurveyAtPlanet","(JJLjava/lang/String;Ljava/lang/String;)Z",requestResourceListForSurveyAtPlanet),
 	JF("_requestSurvey","(JLjava/lang/String;Ljava/lang/String;II)Z",requestSurvey),
+	JF("_requestSurveyAtLocation","(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;FFII)Z",requestSurveyAtLocation),
 	JF("_pickRandomNonDepeletedResource","(Ljava/lang/String;)J",pickRandomNonDepeletedResource),
 	JF("_oneTimeHarvest","(JILscript/location;)I",oneTimeHarvest),
 	JF("_addResourceToContainer","(JJIJ)Z",addResourceToContainer),
@@ -109,6 +114,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("hasResourceType", "(Ljava/lang/String;)Z", hasResourceType),
 	JF("_createResourceCrate", "(JIJ)J", createResourceCrate),
 	JF("requestResourceList", "(Lscript/location;FFLjava/lang/String;)[Lscript/resource_density;", requestResourceList),
+	JF("getAvailableResourceDensitiesForPlanetaryMiningDroid", "(Lscript/location;Ljava/lang/String;)[Lscript/resource_density;", getAvailableResourceDensitiesForPlanetaryMiningDroid),
 	JF("_getResourceAttributes", "(J)[Lscript/resource_attribute;", getResourceAttributes),
 	JF("_getScaledResourceAttributes", "(JLjava/lang/String;)[Lscript/resource_attribute;", getScaledResourceAttributes),
 	JF("_getResourceAttribute", "(JLjava/lang/String;)I", getResourceAttribute),
@@ -163,6 +169,21 @@ jboolean JNICALL ScriptMethodsResourceNamespace::requestResourceListForSurvey(JN
 
 // ----------------------------------------------------------------------
 
+jboolean JNICALL ScriptMethodsResourceNamespace::requestResourceListForSurveyAtPlanet(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong tool, jstring parentResourceClass, jstring planetName)
+{
+	Unicode::String myParentResourceClass;
+	Unicode::String myPlanetName;
+	JavaString resourceClass(parentResourceClass);
+	JavaString planet(planetName);
+	if (!JavaLibrary::convert(resourceClass, myParentResourceClass) || !JavaLibrary::convert(planet, myPlanetName))
+		return JNI_FALSE;
+
+	SurveySystem::getInstance().requestResourceListForSurvey(NetworkId(player), NetworkId(tool), Unicode::wideToNarrow(myParentResourceClass), Unicode::wideToNarrow(myPlanetName));
+	return JNI_TRUE;
+}
+
+// ----------------------------------------------------------------------
+
 jboolean JNICALL ScriptMethodsResourceNamespace::requestSurvey(JNIEnv * /*env*/, jobject /*self*/, jlong player, jstring parentResourceClass, jstring resourceTypeName, jint surveyRange, jint numPoints)
 {
 	const NetworkId myPlayer(player);
@@ -182,6 +203,23 @@ jboolean JNICALL ScriptMethodsResourceNamespace::requestSurvey(JNIEnv * /*env*/,
 		return JNI_FALSE;
 
 	SurveySystem::getInstance().requestSurvey(myPlayer, Unicode::wideToNarrow(myParentResourceClass), myResourceTypeName, myPlayerObject->getPosition_w(), mySurveyRange, myNumPoints);
+	return JNI_TRUE;
+}
+
+// ----------------------------------------------------------------------
+
+jboolean JNICALL ScriptMethodsResourceNamespace::requestSurveyAtLocation(JNIEnv * /*env*/, jobject /*self*/, jlong player, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z, jint surveyRange, jint numPoints)
+{
+	Unicode::String myParentResourceClass;
+	Unicode::String myPlanetName;
+	std::string myResourceTypeName;
+	JavaString resourceClass(parentResourceClass);
+	JavaString resourceType(resourceTypeName);
+	JavaString planet(planetName);
+	if (!JavaLibrary::convert(resourceClass, myParentResourceClass) || !JavaLibrary::convert(resourceType, myResourceTypeName) || !JavaLibrary::convert(planet, myPlanetName))
+		return JNI_FALSE;
+
+	SurveySystem::getInstance().requestSurvey(NetworkId(player), Unicode::wideToNarrow(myParentResourceClass), myResourceTypeName, Unicode::wideToNarrow(myPlanetName), Vector(x, 0.0f, z), static_cast<int>(surveyRange), static_cast<int>(numPoints));
 	return JNI_TRUE;
 }
 
@@ -982,6 +1020,93 @@ jobjectArray JNICALL ScriptMethodsResourceNamespace::requestResourceList(JNIEnv 
 				setFloatField(*densityObject, JavaLibrary::getFidResourceDensityDensity(), goodDensities[i]);
 				setObjectArrayElement(*densityArray, i, *densityObject);
 			}
+		}
+	}
+
+	return densityArray->getReturnValue();
+}
+
+// ----------------------------------------------------------------------
+
+jobjectArray JNICALL ScriptMethodsResourceNamespace::getAvailableResourceDensitiesForPlanetaryMiningDroid(JNIEnv * env, jobject /*self*/, jobject loc, jstring resourceClass)
+{
+	if (loc == 0)
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid passed nullptr location"));
+		return 0;
+	}
+
+	if (resourceClass == 0)
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid passed nullptr resource class"));
+		return 0;
+	}
+
+	JavaStringParam jresourceClass(resourceClass);
+	std::string resourceClassName;
+	if (!JavaLibrary::convert(jresourceClass, resourceClassName))
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid cannot convert resource class"));
+		return 0;
+	}
+
+	Location location;
+	if (!ScriptConversion::convert(LocalRefParam(loc), location))
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid cannot convert Java location to C"));
+		return 0;
+	}
+	const Vector & locationPos = location.getCoordinates();
+
+	const PlanetObject * planet = ServerUniverse::getInstance().getPlanetByName(location.getSceneId());
+	if (planet == nullptr)
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid cannot find planet %s", location.getSceneId()));
+		return 0;
+	}
+
+	ResourceClassObject const * const resClass = ServerUniverse::getInstance().getResourceClassByName(resourceClassName);
+	if (resClass == nullptr)
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid cannot find resource class %s", resourceClassName.c_str()));
+		return 0;
+	}
+
+	std::vector<ResourceTypeObject const *> types;
+	planet->getAvailableResourceList(types, *resClass);
+
+	LocalObjectArrayRefPtr densityArray = createNewObjectArray(types.size(), JavaLibrary::getClsResourceDensity());
+	if (densityArray == LocalObjectArrayRef::cms_nullPtr)
+	{
+		WARNING(true, ("JavaLibrary::getAvailableResourceDensitiesForPlanetaryMiningDroid cannot create resource density array of size %d", types.size()));
+		return 0;
+	}
+
+	float const offsets[] = { -32.0f, 0.0f, 32.0f };
+	for (size_t i = 0; i < types.size(); ++i)
+	{
+		ResourcePoolObject const * const pool = types[i]->getPoolForPlanet(*planet);
+		if (pool == nullptr)
+			continue;
+
+		float maxDensity = 0.0f;
+		for (int x = 0; x < 3; ++x)
+		{
+			for (int z = 0; z < 3; ++z)
+			{
+				float const density = pool->getEfficiencyAtLocation(locationPos.x + offsets[x], locationPos.z + offsets[z]);
+				if (density > maxDensity)
+					maxDensity = density;
+			}
+		}
+
+		LocalRefPtr densityObject = allocObject(JavaLibrary::getClsResourceDensity());
+		if (densityObject != LocalRef::cms_nullPtr)
+		{
+			LocalRefPtr oid = JavaLibrary::getObjId(types[i]->getNetworkId());
+			setObjectField(*densityObject, JavaLibrary::getFidResourceDensityResourceType(), *oid);
+			setFloatField(*densityObject, JavaLibrary::getFidResourceDensityDensity(), maxDensity);
+			setObjectArrayElement(*densityArray, i, *densityObject);
 		}
 	}
 
