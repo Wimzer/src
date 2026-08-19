@@ -59,6 +59,7 @@ namespace ScriptMethodsResourceNamespace
 	jstring      JNICALL getResourceClassName(JNIEnv *env, jobject self, jstring resourceClass);
 	jobjectArray JNICALL getResourceClassNames(JNIEnv *env, jobject self, jobjectArray resourceClasses);
 	jlongArray   JNICALL getResourceTypes(JNIEnv *env, jobject self, jstring resourceClass);
+	jlongArray   JNICALL getAvailablePmdResourceTypes(JNIEnv *env, jobject self, jobject loc, jstring resourceClass);
 	jstring      JNICALL getResourceClass(JNIEnv *env, jobject self, jlong resourceType);
 	jstring      JNICALL getResourceParentClass(JNIEnv *env, jobject self, jstring resourceClass);
 	jobjectArray JNICALL getResourceChildClasses(JNIEnv *env, jobject self, jstring resourceClass);
@@ -102,6 +103,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("getResourceClassName", "(Ljava/lang/String;)Ljava/lang/String;", getResourceClassName),
 	JF("getResourceClassNames", "([Ljava/lang/String;)[Ljava/lang/String;", getResourceClassNames),
 	JF("_getResourceTypes", "(Ljava/lang/String;)[J", getResourceTypes),
+	JF("_getAvailablePmdResourceTypes", "(Lscript/location;Ljava/lang/String;)[J", getAvailablePmdResourceTypes),
 	JF("_getResourceClass", "(J)Ljava/lang/String;", getResourceClass),
 	JF("getResourceParentClass", "(Ljava/lang/String;)Ljava/lang/String;", getResourceParentClass),
 	JF("getResourceChildClasses", "(Ljava/lang/String;)[Ljava/lang/String;", getResourceChildClasses),
@@ -614,6 +616,56 @@ jlongArray JNICALL ScriptMethodsResourceNamespace::getResourceTypes(JNIEnv * env
 		}
 	}
 	return jtypes->getReturnValue();
+}
+
+// ----------------------------------------------------------------------
+
+jlongArray JNICALL ScriptMethodsResourceNamespace::getAvailablePmdResourceTypes(JNIEnv * env, jobject /*self*/, jobject loc, jstring resourceClass)
+{
+	if (loc == 0 || resourceClass == 0)
+	{
+		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes passed nullptr input"));
+		return 0;
+	}
+
+	Location location;
+	if (!ScriptConversion::convert(LocalRefParam(loc), location))
+	{
+		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot convert Java location to C"));
+		return 0;
+	}
+
+	JavaStringParam jresourceClass(resourceClass);
+	std::string resourceClassName;
+	if (!JavaLibrary::convert(jresourceClass, resourceClassName))
+	{
+		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot convert resource class name"));
+		return 0;
+	}
+
+	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(location.getSceneId());
+	ResourceClassObject const * const parentClass = ServerUniverse::getInstance().getResourceClassByName(resourceClassName);
+	if (planet == nullptr || parentClass == nullptr)
+	{
+		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot find planet or resource class"));
+		return 0;
+	}
+
+	std::vector<ResourceTypeObject const *> availableResources;
+	planet->getAvailableResourceList(availableResources, *parentClass);
+	LocalLongArrayRefPtr resourceTypes = createNewLongArray(availableResources.size());
+	if (resourceTypes == LocalLongArrayRef::cms_nullPtr)
+	{
+		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot create obj_id array of size %d", availableResources.size()));
+		return 0;
+	}
+
+	for (size_t i = 0; i < availableResources.size(); ++i)
+	{
+		jlong resourceId = availableResources[i]->getNetworkId().getValue();
+		setLongArrayRegion(*resourceTypes, i, 1, &resourceId);
+	}
+	return resourceTypes->getReturnValue();
 }
 
 // ----------------------------------------------------------------------
