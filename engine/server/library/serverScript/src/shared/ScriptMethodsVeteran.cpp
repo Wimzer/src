@@ -45,7 +45,7 @@ namespace ScriptMethodsVeteranNamespace
 	jboolean     JNICALL veteranCanTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL veteranTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL adjustSwgTcgAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong item, jint featureId, jint adjustment);
-	jboolean     JNICALL planetaryMiningDroidAdjustAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jint adjustment);
+	jboolean     JNICALL planetaryMiningDroidAdjustAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jint adjustment, jstring operationId);
 }
 
 
@@ -72,7 +72,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("_veteranCanTradeInReward",                     "(JJ)Z", veteranCanTradeInReward),
 	JF("_veteranTradeInReward",                        "(JJ)V", veteranTradeInReward),
 	JF("_adjustSwgTcgAccountFeatureId",                "(JJII)V", adjustSwgTcgAccountFeatureId),
-	JF("_planetaryMiningDroidAdjustAccountFeatureId",  "(JJI)Z", planetaryMiningDroidAdjustAccountFeatureId),
+	JF("_planetaryMiningDroidAdjustAccountFeatureId",  "(JJILjava/lang/String;)Z", planetaryMiningDroidAdjustAccountFeatureId),
 };
 
 	return JavaLibrary::registerNatives(NATIVES, sizeof(NATIVES)/sizeof(NATIVES[0]));
@@ -371,12 +371,16 @@ void JNICALL ScriptMethodsVeteranNamespace::adjustSwgTcgAccountFeatureId(JNIEnv 
 
 // ----------------------------------------------------------------------
 
-jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidAdjustAccountFeatureId(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jint adjustment)
+jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidAdjustAccountFeatureId(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jint adjustment, jstring operationId)
 {
 	// This feature is a live job counter, not an entitlement. ConnectionServer
 	// enforces the three-job reservation limit before changing the account value.
 	uint32 const planetaryMiningDroidFeatureId = 900001;
 	if ((adjustment != 1) && (adjustment != -1))
+		return JNI_FALSE;
+	std::string operation;
+	JavaLibrary::convert(JavaStringParam(operationId), operation);
+	if (operation.empty())
 		return JNI_FALSE;
 
 	ServerObject * const playerObject = safe_cast<ServerObject *>(NetworkIdManager::getObjectById(NetworkId(player)));
@@ -388,7 +392,7 @@ jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidAdjustAccoun
 	if (!client || client->isUsingAdminLogin())
 		return JNI_FALSE;
 
-	AdjustAccountFeatureIdRequest const request(NetworkId::cms_invalid, GameServer::getInstance().getProcessId(), playerCreature->getNetworkId(), std::string(), static_cast<StationId>(client->getStationId()), NetworkId(callbackTarget), std::string(), PlatformGameCode::SWG, planetaryMiningDroidFeatureId, adjustment);
+	AdjustAccountFeatureIdRequest const request(NetworkId::cms_invalid, GameServer::getInstance().getProcessId(), playerCreature->getNetworkId(), std::string(), static_cast<StationId>(client->getStationId()), NetworkId(callbackTarget), operation, PlatformGameCode::SWG, planetaryMiningDroidFeatureId, adjustment);
 	client->sendToConnectionServer(request);
 	return JNI_TRUE;
 }

@@ -26,6 +26,8 @@
 #include "sharedNetworkMessages/ResourceHarvesterActivatePageMessage.h"
 #include "sharedObject/NetworkIdManager.h"
 
+#include <cmath>
+
 using namespace JNIWrappersNamespace;
 
 
@@ -183,6 +185,8 @@ jboolean JNICALL ScriptMethodsResourceNamespace::requestSurvey(JNIEnv * /*env*/,
 	if (!JavaLibrary::convert(temp2,myResourceTypeName))
 		return JNI_FALSE;
 	if (!myPlayerObject)
+		return JNI_FALSE;
+	if ((myNumPoints < 2) || (myNumPoints > 64) || (mySurveyRange < 1) || (mySurveyRange > 4096) || (myNumPoints > mySurveyRange + 1))
 		return JNI_FALSE;
 
 	SurveySystem::getInstance().requestSurvey(myPlayer, Unicode::wideToNarrow(myParentResourceClass), myResourceTypeName, myPlayerObject->getPosition_w(), mySurveyRange, myNumPoints);
@@ -1047,6 +1051,9 @@ jobjectArray JNICALL ScriptMethodsResourceNamespace::requestResourceList(JNIEnv 
 
 jboolean JNICALL ScriptMethodsResourceNamespace::requestPmdSurvey(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z)
 {
+	if (!std::isfinite(x) || !std::isfinite(z))
+		return JNI_FALSE;
+
 	Unicode::String myParentResourceClass;
 	Unicode::String myPlanetName;
 	std::string myResourceTypeName;

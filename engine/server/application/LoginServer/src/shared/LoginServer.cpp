@@ -43,6 +43,9 @@
 #include "serverNetworkMessages/PreloadFinishedMessage.h"
 #include "serverNetworkMessages/RenameCharacterMessage.h"
 #include "serverNetworkMessages/ServerDeleteCharacterMessage.h"
+
+#include <cstdlib>
+#include <set>
 #include "serverNetworkMessages/TransferAccountData.h"
 #include "serverNetworkMessages/TransferAccountDataArchive.h"
 #include "serverNetworkMessages/TransferCharacterData.h"
@@ -108,6 +111,40 @@ namespace LoginServerNamespace {
     // when the LoginServer is restarted
     std::map <uint32, std::map<uint32, int>> s_nonSessionTestingAccountSwgFeatureIds;
     std::map <uint32, std::map<uint32, int>> s_nonSessionTestingAccountSwgTcgFeatureIds;
+    uint32 const cms_planetaryMiningDroidFeatureId = 900001;
+    int const cms_planetaryMiningDroidMaximumJobs = 3;
+
+    struct PlanetaryMiningDroidJobState {
+        PlanetaryMiningDroidJobState() : highestRetiredSequence(0), activeSequences() {}
+
+        int highestRetiredSequence;
+        std::set<int> activeSequences;
+    };
+
+    std::map<uint32, std::map<std::string, PlanetaryMiningDroidJobState> > s_planetaryMiningDroidJobs;
+
+    bool parsePlanetaryMiningDroidOperation(std::string const &operationId, bool &reservation, int &sequence) {
+        std::string const reservePrefix("reserve:");
+        std::string const releasePrefix("release:");
+        std::string sequenceText;
+        if (operationId.compare(0, reservePrefix.size(), reservePrefix) == 0) {
+            reservation = true;
+            sequenceText = operationId.substr(reservePrefix.size());
+        } else if (operationId.compare(0, releasePrefix.size(), releasePrefix) == 0) {
+            reservation = false;
+            sequenceText = operationId.substr(releasePrefix.size());
+        } else {
+            return false;
+        }
+
+        char *end = nullptr;
+        long const parsed = std::strtol(sequenceText.c_str(), &end, 10);
+        if (!end || (*end != '\0') || (parsed < 1) || (parsed > 2147483647L)) {
+            return false;
+        }
+        sequence = static_cast<int>(parsed);
+        return true;
+    }
 }
 
 //-----------------------------------------------------------------------
@@ -539,6 +576,7 @@ void LoginServer::receiveMessage(const MessageDispatch::Emitter &source, const M
 
                 int currentFeatureIdCount = 0;
                 int updatedFeatureIdCount = 0;
+                bool adjustmentSucceeded = nonSessionTestingAccountFeatureIds != nullptr;
                 if (nonSessionTestingAccountFeatureIds) {
                     std::map<uint32, int> &accountFeatureIds = (*nonSessionTestingAccountFeatureIds)[msg.getTargetStationId()];
                     std::map<uint32, int>::const_iterator accountFeatureId = accountFeatureIds.find(msg.getFeatureId());
@@ -546,14 +584,48 @@ void LoginServer::receiveMessage(const MessageDispatch::Emitter &source, const M
                         currentFeatureIdCount = accountFeatureId->second;
                     }
 
-                    updatedFeatureIdCount = std::max(0, currentFeatureIdCount + msg.getAdjustment());
-                    if (updatedFeatureIdCount > 0) {
-                        accountFeatureIds[msg.getFeatureId()] = updatedFeatureIdCount;
-                    } else {
-                        IGNORE_RETURN(accountFeatureIds.erase(msg.getFeatureId()));
-                        if (accountFeatureIds.empty()) {
-                            IGNORE_RETURN(nonSessionTestingAccountFeatureIds->erase(msg.getTargetStationId()));
+                    bool const planetaryMiningDroidAdjustment = (msg.getGameCode() == PlatformGameCode::SWG) && (msg.getFeatureId() == cms_planetaryMiningDroidFeatureId);
+                    updatedFeatureIdCount = currentFeatureIdCount;
+                    if (planetaryMiningDroidAdjustment) {
+                        bool reservation = false;
+                        int sequence = 0;
+                        adjustmentSucceeded = parsePlanetaryMiningDroidOperation(msg.getTargetItemDescription(), reservation, sequence) &&
+                            ((reservation && (msg.getAdjustment() == 1)) || (!reservation && (msg.getAdjustment() == -1)));
+                        if (adjustmentSucceeded) {
+                            PlanetaryMiningDroidJobState &jobState = s_planetaryMiningDroidJobs[msg.getTargetStationId()][msg.getTargetPlayer().getValueString()];
+                            std::set<int>::iterator const activeSequence = jobState.activeSequences.find(sequence);
+                            if (reservation) {
+                                if (activeSequence != jobState.activeSequences.end()) {
+                                    // Replaying an accepted reservation leaves the account count unchanged.
+                                } else if (sequence <= jobState.highestRetiredSequence || currentFeatureIdCount >= cms_planetaryMiningDroidMaximumJobs) {
+                                    jobState.highestRetiredSequence = std::max(jobState.highestRetiredSequence, sequence);
+                                    adjustmentSucceeded = false;
+                                } else {
+                                    IGNORE_RETURN(jobState.activeSequences.insert(sequence));
+                                    updatedFeatureIdCount = currentFeatureIdCount + 1;
+                                }
+                            } else if (activeSequence != jobState.activeSequences.end()) {
+                                IGNORE_RETURN(jobState.activeSequences.erase(activeSequence));
+                                jobState.highestRetiredSequence = std::max(jobState.highestRetiredSequence, sequence);
+                                updatedFeatureIdCount = std::max(0, currentFeatureIdCount - 1);
+                            } else {
+                                // A replayed release, including one after LoginServer restart, is successful and has no side effect.
+                                jobState.highestRetiredSequence = std::max(jobState.highestRetiredSequence, sequence);
+                            }
                         }
+                    } else {
+                        updatedFeatureIdCount = std::max(0, currentFeatureIdCount + msg.getAdjustment());
+                    }
+
+                    if (adjustmentSucceeded && updatedFeatureIdCount != currentFeatureIdCount) {
+                        if (updatedFeatureIdCount > 0) {
+                            accountFeatureIds[msg.getFeatureId()] = updatedFeatureIdCount;
+                        } else {
+                            IGNORE_RETURN(accountFeatureIds.erase(msg.getFeatureId()));
+                        }
+                    }
+                    if (accountFeatureIds.empty()) {
+                        IGNORE_RETURN(nonSessionTestingAccountFeatureIds->erase(msg.getTargetStationId()));
                     }
                 }
 
@@ -569,8 +641,8 @@ void LoginServer::receiveMessage(const MessageDispatch::Emitter &source, const M
 
                 const CentralServerConnection *conn = dynamic_cast<const CentralServerConnection *>(&source);
                 if (conn) {
-                    AdjustAccountFeatureIdResponse const rsp(msg.getRequestingPlayer(), msg.getGameServer(), msg.getTargetPlayer(), msg.getTargetPlayerDescription(), msg.getTargetStationId(), msg.getTargetItem(), msg.getTargetItemDescription(), msg.getGameCode(), msg.getFeatureId(), currentFeatureIdCount, updatedFeatureIdCount, (nonSessionTestingAccountFeatureIds
-                                                                                                                                                                                                                                                                                                                                           ? RESULT_SUCCESS
+                    AdjustAccountFeatureIdResponse const rsp(msg.getRequestingPlayer(), msg.getGameServer(), msg.getTargetPlayer(), msg.getTargetPlayerDescription(), msg.getTargetStationId(), msg.getTargetItem(), msg.getTargetItemDescription(), msg.getGameCode(), msg.getFeatureId(), currentFeatureIdCount, updatedFeatureIdCount, (adjustmentSucceeded
+                                                                                                                                                                                                                                                                                                                                            ? RESULT_SUCCESS
                                                                                                                                                                                                                                                                                                                                            : RESULT_CANCELLED), false);
                     sendToCluster(conn->getClusterId(), rsp);
                 }

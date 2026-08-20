@@ -68,6 +68,8 @@ void SurveySystem::requestSurvey(const NetworkId &playerId, const std::string &p
 bool SurveySystem::collectSurveyValues(const std::string &planetName, const NetworkId &resourceTypeId, const Vector &location, int surveyRange, int numPoints, std::vector<float> &values) const
 {
 	values.clear();
+	if ((numPoints < 2) || (numPoints > 64) || (surveyRange < 1) || (surveyRange > 4096) || (numPoints > surveyRange + 1))
+		return false;
 	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeById(resourceTypeId);
 	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(planetName);
 	ResourcePoolObject const * const pool = typeObj && planet ? typeObj->getPoolForPlanet(*planet) : nullptr;
@@ -77,9 +79,13 @@ bool SurveySystem::collectSurveyValues(const std::string &planetName, const Netw
 	int const distBetweenPoints = surveyRange / (numPoints - 1); // -1 is so that we get points at both ends
 	int const radius = surveyRange / 2;
 	values.reserve(numPoints * numPoints);
-	for (float x = location.x - radius; x <= location.x + radius; x += distBetweenPoints)
-		for (float z = location.z - radius; z <= location.z + radius; z += distBetweenPoints)
+	for (int xIndex = 0; xIndex < numPoints; ++xIndex)
+		for (int zIndex = 0; zIndex < numPoints; ++zIndex)
+		{
+			float const x = location.x - radius + (xIndex * distBetweenPoints);
+			float const z = location.z - radius + (zIndex * distBetweenPoints);
 			values.push_back(pool->getEfficiencyAtLocation(x, z));
+		}
 
 	return true;
 }
@@ -178,6 +184,9 @@ SurveySystem::TaskSurvey::~TaskSurvey()
 
 bool SurveySystem::TaskSurvey::run()
 {
+	if ((m_numPoints < 2) || (m_numPoints > 64) || (m_surveyRange < 1) || (m_surveyRange > 4096) || (m_numPoints > m_surveyRange + 1))
+		return true;
+
 	Client const *              client            = GameServer::getInstance().getClient(m_playerId);
 	ResourceTypeObject const *  typeObj           = ServerUniverse::getInstance().getResourceTypeByName(*m_resourceTypeName);
 	ResourceClassObject const * parentClass       = ServerUniverse::getInstance().getResourceClassByName(*m_parentResourceClassName);
@@ -201,9 +210,11 @@ bool SurveySystem::TaskSurvey::run()
 		std::vector<float>   efficiencyVals;
 		
 		size_t surveyValueIndex = 0;
-		for (item.m_location.x=m_location.x-radius; item.m_location.x<=m_location.x+radius; item.m_location.x+=distBetweenPoints)
-			for (item.m_location.z=m_location.z-radius; item.m_location.z<=m_location.z+radius; item.m_location.z+=distBetweenPoints)
+		for (int xIndex = 0; xIndex < m_numPoints; ++xIndex)
+			for (int zIndex = 0; zIndex < m_numPoints; ++zIndex)
 			{
+				item.m_location.x = m_location.x - radius + (xIndex * distBetweenPoints);
+				item.m_location.z = m_location.z - radius + (zIndex * distBetweenPoints);
 				item.m_efficiency = surveyValues[surveyValueIndex++];
 				surveyData.push_back(item);
 				DEBUG_REPORT_LOG(true,("Adding data item (%f,%f,%f) -- %f\n",item.m_location.x, item.m_location.y, item.m_location.z, item.m_efficiency));
@@ -289,9 +300,11 @@ bool SurveySystem::TaskPmdSurvey::run()
 		{
 			int const distBetweenPoints = m_surveyRange / (m_numPoints - 1);
 			int const radius = m_surveyRange / 2;
-			for (float x = m_location.x - radius; x <= m_location.x + radius; x += distBetweenPoints)
-				for (float z = m_location.z - radius; z <= m_location.z + radius; z += distBetweenPoints)
+			for (int xIndex = 0; xIndex < m_numPoints; ++xIndex)
+				for (int zIndex = 0; zIndex < m_numPoints; ++zIndex)
 				{
+					float const x = m_location.x - radius + (xIndex * distBetweenPoints);
+					float const z = m_location.z - radius + (zIndex * distBetweenPoints);
 					xVals.push_back(x);
 					zVals.push_back(z);
 				}

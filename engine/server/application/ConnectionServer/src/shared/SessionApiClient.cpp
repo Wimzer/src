@@ -493,6 +493,7 @@ void SessionApiClient::OnGetFeatures(const apiTrackingNumber trackingNumber,
 					adjustAccountFeatureIdResponse->setSessionResultCode(result, sResultString.c_str(), sResultText.c_str());
 					gc->send(*adjustAccountFeatureIdResponse,true);
 				}
+				clearPlanetaryMiningDroidReservation(*adjustAccountFeatureIdResponse);
 			}
 			else
 			{
@@ -541,6 +542,7 @@ void SessionApiClient::OnGetFeatures(const apiTrackingNumber trackingNumber,
 						adjustAccountFeatureIdResponse->setSessionResultCode(RESULT_CANCELLED, "MISSING_NEWLY_ADDED_FEATURE_ID", "The feature Id was just successfully added, but now it's gone");
 						gc->send(*adjustAccountFeatureIdResponse,true);
 					}
+					clearPlanetaryMiningDroidReservation(*adjustAccountFeatureIdResponse);
 				}
 			}
 		}
