@@ -5573,7 +5573,7 @@ void ServerObject::handleCMessageTo(const MessageToPayload &message)
 				{
 					ScriptParams params;
 					params.addParam(msg.getResultCode() == RESULT_SUCCESS, "success");
-					params.addParam(msg.getTargetItemDescription(), "operationId");
+					params.addParam(msg.getTargetItemDescription().c_str(), "operationId");
 					params.addParam(msg.getOldValue(), "oldValue");
 					params.addParam(msg.getNewValue(), "newValue");
 					ScriptDictionaryPtr dictionary;
