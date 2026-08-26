@@ -439,7 +439,13 @@ void SessionApiClient::OnGetFeatures(const apiTrackingNumber trackingNumber,
 
 				int const currentCount = existingFeature ? existingFeature->GetConsumeCount() : 0;
 				bool const isPlanetaryMiningDroidReservation = (adjustAccountFeatureIdRequest->getGameCode() == PlatformGameCode::SWG) && (adjustAccountFeatureIdRequest->getFeatureId() == cms_planetaryMiningDroidFeatureId) && (adjustAccountFeatureIdRequest->getAdjustment() == 1);
-				int const pendingReservations = ms_pendingPlanetaryMiningDroidReservations[adjustAccountFeatureIdRequest->getTargetStationId()];
+				int pendingReservations = 0;
+				if (isPlanetaryMiningDroidReservation)
+				{
+					std::map<StationId, int>::const_iterator const iter = ms_pendingPlanetaryMiningDroidReservations.find(adjustAccountFeatureIdRequest->getTargetStationId());
+					if (iter != ms_pendingPlanetaryMiningDroidReservations.end())
+						pendingReservations = iter->second;
+				}
 				if (isPlanetaryMiningDroidReservation && (currentCount + pendingReservations >= cms_planetaryMiningDroidMaximumJobs))
 				{
 					GameConnection * const gc = ConnectionServer::getGameConnection(adjustAccountFeatureIdRequest->getGameServer());
