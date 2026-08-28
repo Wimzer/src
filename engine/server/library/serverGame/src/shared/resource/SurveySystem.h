@@ -27,9 +27,7 @@ class SurveySystem : public Singleton2<SurveySystem>
 {
   public:
 	void requestResourceListForSurvey  (const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName) const;
-	void requestResourceListForSurvey  (const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName, const std::string &planetName) const;
 	void requestSurvey                 (const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const Vector &location, int surveyRange, int numPoints) const;
-	void requestSurvey                 (const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const;
 	bool collectSurveyValues           (const std::string &planetName, const NetworkId &resourceTypeId, const Vector &location, int surveyRange, int numPoints, std::vector<float> &values) const;
 	void requestPmdSurvey              (const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const;
 	
@@ -41,7 +39,7 @@ class SurveySystem : public Singleton2<SurveySystem>
 	class TaskGetResourceList : public NonCriticalTaskQueue::TaskRequest
 	{
 	  public:
-		TaskGetResourceList            (const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName, const std::string &planetName);
+		TaskGetResourceList            (const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName);
 		virtual ~TaskGetResourceList   ();
 		virtual bool run               ();
 
@@ -49,7 +47,6 @@ class SurveySystem : public Singleton2<SurveySystem>
 		NetworkId                      m_playerId;
 		NetworkId                      m_surveyTool; 		
 		std::string *                  m_parentResourceClassName;
-		std::string *                  m_planetName;
 
 	  private:
 		TaskGetResourceList            (const TaskGetResourceList&);
@@ -59,7 +56,7 @@ class SurveySystem : public Singleton2<SurveySystem>
 	class TaskSurvey : public NonCriticalTaskQueue::TaskRequest
 	{
 	  public:
-		TaskSurvey                     (const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints);
+		TaskSurvey                     (const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const Vector &location, int surveyRange, int numPoints);
 		virtual ~TaskSurvey            ();
 		virtual bool run               ();
 
@@ -67,7 +64,6 @@ class SurveySystem : public Singleton2<SurveySystem>
 		const NetworkId                m_playerId;
 		const std::string *            m_parentResourceClassName;
 		const std::string *            m_resourceTypeName;
-		const std::string *            m_planetName;
 		Vector                         m_location;
 		int                            m_surveyRange;
 		int                            m_numPoints;

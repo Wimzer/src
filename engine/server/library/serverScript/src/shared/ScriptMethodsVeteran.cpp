@@ -10,9 +10,11 @@
 
 #include "serverGame/CreatureObject.h"
 #include "serverGame/GameServer.h"
+#include "serverGame/PlayerCreatureController.h"
+#include "serverGame/PlayerObject.h"
 #include "serverGame/VeteranRewardManager.h"
 #include "serverNetworkMessages/AccountFeatureIdRequest.h"
-#include "serverNetworkMessages/AdjustAccountFeatureIdRequest.h"
+#include "serverNetworkMessages/PlanetaryMiningJobRequest.h"
 #include "sharedGame/PlatformFeatureBits.h"
 #include "sharedObject/NetworkIdManager.h"
 #include "UnicodeUtils.h"
@@ -45,7 +47,7 @@ namespace ScriptMethodsVeteranNamespace
 	jboolean     JNICALL veteranCanTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL veteranTradeInReward(JNIEnv *env, jobject self, jlong player, jlong item);
 	void         JNICALL adjustSwgTcgAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong item, jint featureId, jint adjustment);
-	jboolean     JNICALL planetaryMiningDroidAdjustAccountFeatureId(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jint adjustment, jstring operationId);
+	jboolean     JNICALL planetaryMiningDroidUpdateAccountJob(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jint jobSequence, jboolean reserve);
 }
 
 
@@ -72,7 +74,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("_veteranCanTradeInReward",                     "(JJ)Z", veteranCanTradeInReward),
 	JF("_veteranTradeInReward",                        "(JJ)V", veteranTradeInReward),
 	JF("_adjustSwgTcgAccountFeatureId",                "(JJII)V", adjustSwgTcgAccountFeatureId),
-	JF("_planetaryMiningDroidAdjustAccountFeatureId",  "(JJILjava/lang/String;)Z", planetaryMiningDroidAdjustAccountFeatureId),
+	JF("_planetaryMiningDroidUpdateAccountJob",        "(JJIZ)Z", planetaryMiningDroidUpdateAccountJob),
 };
 
 	return JavaLibrary::registerNatives(NATIVES, sizeof(NATIVES)/sizeof(NATIVES[0]));
@@ -371,29 +373,22 @@ void JNICALL ScriptMethodsVeteranNamespace::adjustSwgTcgAccountFeatureId(JNIEnv 
 
 // ----------------------------------------------------------------------
 
-jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidAdjustAccountFeatureId(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jint adjustment, jstring operationId)
+jboolean JNICALL ScriptMethodsVeteranNamespace::planetaryMiningDroidUpdateAccountJob(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jint jobSequence, jboolean reserve)
 {
-	// This feature is a live job counter, not an entitlement. ConnectionServer
-	// enforces the three-job reservation limit before changing the account value.
-	uint32 const planetaryMiningDroidFeatureId = 900001;
-	if ((adjustment != 1) && (adjustment != -1))
-		return JNI_FALSE;
-	std::string operation;
-	JavaLibrary::convert(JavaStringParam(operationId), operation);
-	if (operation.empty())
+	if (jobSequence < 1)
 		return JNI_FALSE;
 
 	ServerObject * const playerObject = safe_cast<ServerObject *>(NetworkIdManager::getObjectById(NetworkId(player)));
 	CreatureObject * const playerCreature = playerObject ? playerObject->asCreatureObject() : nullptr;
-	if (!playerCreature || !playerCreature->isAuthoritative())
+	if (!playerCreature || !playerCreature->isAuthoritative() || playerCreature->getNetworkId() != NetworkId(callbackTarget))
 		return JNI_FALSE;
 
-	Client * const client = playerCreature->getClient();
-	if (!client || client->isUsingAdminLogin())
+	PlayerObject const * const playerData = PlayerCreatureController::getPlayerObject(playerCreature);
+	if (!playerData || playerData->getStationId() == 0 || GameServer::getInstance().getClusterName().empty())
 		return JNI_FALSE;
 
-	AdjustAccountFeatureIdRequest const request(NetworkId::cms_invalid, GameServer::getInstance().getProcessId(), playerCreature->getNetworkId(), std::string(), static_cast<StationId>(client->getStationId()), NetworkId(callbackTarget), operation, PlatformGameCode::SWG, planetaryMiningDroidFeatureId, adjustment);
-	client->sendToConnectionServer(request);
+	PlanetaryMiningJobRequest const request(playerCreature->getNetworkId(), NetworkId(callbackTarget), static_cast<uint32>(playerData->getStationId()), GameServer::getInstance().getClusterName(), jobSequence, reserve == JNI_TRUE);
+	GameServer::getInstance().sendToDatabaseServer(request);
 	return JNI_TRUE;
 }
 

@@ -42,6 +42,7 @@ namespace ScriptMethodsResourceNamespace
 	void         JNICALL activateHarvesterExtractionPage (JNIEnv *env, jobject self, jlong player, jlong harvester);
 	jboolean     JNICALL requestResourceListForSurvey(JNIEnv *env, jobject self, jlong player, jlong tool, jstring parentResourceClass);
 	jboolean     JNICALL requestSurvey(JNIEnv *env, jobject self, jlong player, jstring parentResourceClass, jstring resourceTypeName, jint surveyRange, jint numPoints);
+	jboolean     JNICALL requestPmdSurvey(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z);
 	jlong        JNICALL pickRandomNonDepeletedResource(JNIEnv *env, jobject self, jstring parentResourceClass);
 	jint         JNICALL oneTimeHarvest(JNIEnv *env, jobject self, jlong resourceType, jint amount, jobject where);
 	jlong        JNICALL getResourceContainerResourceType(JNIEnv *env, jobject self, jlong resourceContainer);
@@ -56,12 +57,13 @@ namespace ScriptMethodsResourceNamespace
 	jboolean     JNICALL isResourceClassDerivedFrom(JNIEnv *env, jobject self, jstring resourceClass, jstring parentResourceClass);
 	jlong        JNICALL getResourceTypeByName(JNIEnv *env, jobject self, jstring typeName);
 	jstring      JNICALL getResourceContainerForType(JNIEnv *env, jobject self, jlong resourceType);
+	jint         JNICALL getResourceDepletionTime(JNIEnv *env, jobject self, jlong resourceType);
 	jstring      JNICALL getResourceName(JNIEnv *env, jobject self, jlong resourceType);
 	jobjectArray JNICALL getResourceNames(JNIEnv *env, jobject self, jlongArray resourceTypes);
 	jstring      JNICALL getResourceClassName(JNIEnv *env, jobject self, jstring resourceClass);
 	jobjectArray JNICALL getResourceClassNames(JNIEnv *env, jobject self, jobjectArray resourceClasses);
 	jlongArray   JNICALL getResourceTypes(JNIEnv *env, jobject self, jstring resourceClass);
-	jlongArray   JNICALL getAvailablePmdResourceTypes(JNIEnv *env, jobject self, jobject loc, jstring resourceClass);
+	jlongArray   JNICALL getAvailableResourceTypes(JNIEnv *env, jobject self, jobject loc, jstring resourceClass);
 	jstring      JNICALL getResourceClass(JNIEnv *env, jobject self, jlong resourceType);
 	jstring      JNICALL getResourceParentClass(JNIEnv *env, jobject self, jstring resourceClass);
 	jobjectArray JNICALL getResourceChildClasses(JNIEnv *env, jobject self, jstring resourceClass);
@@ -70,7 +72,6 @@ namespace ScriptMethodsResourceNamespace
 	jboolean     JNICALL hasResourceType(JNIEnv *env, jobject self, jstring resourceClass);
 	jlong        JNICALL createResourceCrate(JNIEnv *env, jobject self, jlong resourceType, jint amount, jlong destination);
 	jobjectArray JNICALL requestResourceList(JNIEnv *env, jobject self, jobject loc, jfloat minDensity, jfloat maxDensity, jstring resourceClass);
-	jboolean     JNICALL requestPmdSurvey(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z);
 	jobjectArray JNICALL getResourceAttributes(JNIEnv *env, jobject self, jlong resourceType);
 	jobjectArray JNICALL getScaledResourceAttributes(JNIEnv *env, jobject self, jlong resourceType, jstring resourceClass);
 	jint         JNICALL getResourceAttribute(JNIEnv *env, jobject self, jlong resourceType, jstring attributeName);
@@ -100,12 +101,13 @@ const JNINativeMethod NATIVES[] = {
 	JF("isResourceClassDerivedFrom","(Ljava/lang/String;Ljava/lang/String;)Z",isResourceClassDerivedFrom),
 	JF("_getResourceTypeByName","(Ljava/lang/String;)J",getResourceTypeByName),
 	JF("_getResourceContainerForType","(J)Ljava/lang/String;",getResourceContainerForType),
+	JF("_getResourceDepletionTime","(J)I",getResourceDepletionTime),
 	JF("_getResourceName", "(J)Ljava/lang/String;", getResourceName),
 	JF("_getResourceNames", "([J)[Ljava/lang/String;", getResourceNames),
 	JF("getResourceClassName", "(Ljava/lang/String;)Ljava/lang/String;", getResourceClassName),
 	JF("getResourceClassNames", "([Ljava/lang/String;)[Ljava/lang/String;", getResourceClassNames),
 	JF("_getResourceTypes", "(Ljava/lang/String;)[J", getResourceTypes),
-	JF("_getAvailablePmdResourceTypes", "(Lscript/location;Ljava/lang/String;)[J", getAvailablePmdResourceTypes),
+	JF("_getAvailableResourceTypes", "(Lscript/location;Ljava/lang/String;)[J", getAvailableResourceTypes),
 	JF("_getResourceClass", "(J)Ljava/lang/String;", getResourceClass),
 	JF("getResourceParentClass", "(Ljava/lang/String;)Ljava/lang/String;", getResourceParentClass),
 	JF("getResourceChildClasses", "(Ljava/lang/String;)[Ljava/lang/String;", getResourceChildClasses),
@@ -186,15 +188,12 @@ jboolean JNICALL ScriptMethodsResourceNamespace::requestSurvey(JNIEnv * /*env*/,
 		return JNI_FALSE;
 	if (!myPlayerObject)
 		return JNI_FALSE;
-	if ((myNumPoints < 2) || (myNumPoints > 64) || (mySurveyRange < 1) || (mySurveyRange > 4096) || (myNumPoints > mySurveyRange + 1))
-		return JNI_FALSE;
 
 	SurveySystem::getInstance().requestSurvey(myPlayer, Unicode::wideToNarrow(myParentResourceClass), myResourceTypeName, myPlayerObject->getPosition_w(), mySurveyRange, myNumPoints);
 	return JNI_TRUE;
 }
 
 // ----------------------------------------------------------------------
-
 
 jlong JNICALL ScriptMethodsResourceNamespace::pickRandomNonDepeletedResource(JNIEnv * /*env*/, jobject /*self*/, jstring parentResourceClass)
 {
@@ -478,6 +477,17 @@ jstring JNICALL ScriptMethodsResourceNamespace::getResourceContainerForType(JNIE
 
 // ----------------------------------------------------------------------
 
+jint JNICALL ScriptMethodsResourceNamespace::getResourceDepletionTime(JNIEnv * /*env*/, jobject /*self*/, jlong resourceType)
+{
+	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeById(NetworkId(resourceType));
+	if (!typeObj)
+		return 0;
+
+	return static_cast<jint>(typeObj->getDepletedTimestamp());
+}
+
+// ----------------------------------------------------------------------
+
 jstring JNICALL ScriptMethodsResourceNamespace::getResourceName(JNIEnv * /*env*/, jobject /*self*/, jlong resourceType)
 {
 	if (resourceType == 0)
@@ -624,52 +634,40 @@ jlongArray JNICALL ScriptMethodsResourceNamespace::getResourceTypes(JNIEnv * env
 
 // ----------------------------------------------------------------------
 
-jlongArray JNICALL ScriptMethodsResourceNamespace::getAvailablePmdResourceTypes(JNIEnv * env, jobject /*self*/, jobject loc, jstring resourceClass)
+jlongArray JNICALL ScriptMethodsResourceNamespace::getAvailableResourceTypes(JNIEnv *env, jobject /*self*/, jobject loc, jstring resourceClass)
 {
 	if (loc == 0 || resourceClass == 0)
-	{
-		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes passed nullptr input"));
 		return 0;
-	}
 
 	Location location;
 	if (!ScriptConversion::convert(LocalRefParam(loc), location))
-	{
-		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot convert Java location to C"));
 		return 0;
-	}
 
 	JavaStringParam jresourceClass(resourceClass);
 	std::string resourceClassName;
 	if (!JavaLibrary::convert(jresourceClass, resourceClassName))
-	{
-		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot convert resource class name"));
 		return 0;
-	}
 
 	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(location.getSceneId());
-	ResourceClassObject const * const parentClass = ServerUniverse::getInstance().getResourceClassByName(resourceClassName);
-	if (planet == nullptr || parentClass == nullptr)
-	{
-		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot find planet or resource class"));
+	ServerResourceClassObject const * const resClass = safe_cast<ServerResourceClassObject const *>(ServerUniverse::getInstance().getResourceClassByName(resourceClassName));
+	if (planet == nullptr || resClass == nullptr)
 		return 0;
-	}
 
-	std::vector<ResourceTypeObject const *> availableResources;
-	planet->getAvailableResourceList(availableResources, *parentClass);
-	LocalLongArrayRefPtr resourceTypes = createNewLongArray(availableResources.size());
-	if (resourceTypes == LocalLongArrayRef::cms_nullPtr)
-	{
-		WARNING(true, ("JavaLibrary::getAvailablePmdResourceTypes cannot create obj_id array of size %d", availableResources.size()));
+	std::vector<ResourceTypeObject const *> types;
+	planet->getAvailableResourceList(types, *resClass);
+	LocalLongArrayRefPtr jtypes = createNewLongArray(types.size());
+	if (jtypes == LocalLongArrayRef::cms_nullPtr)
 		return 0;
-	}
 
-	for (size_t i = 0; i < availableResources.size(); ++i)
+	for (size_t i = 0; i < types.size(); ++i)
 	{
-		jlong resourceId = availableResources[i]->getNetworkId().getValue();
-		setLongArrayRegion(*resourceTypes, i, 1, &resourceId);
+		if (types[i] != nullptr)
+		{
+			jlong resourceType = types[i]->getNetworkId().getValue();
+			setLongArrayRegion(*jtypes, i, 1, &resourceType);
+		}
 	}
-	return resourceTypes->getReturnValue();
+	return jtypes->getReturnValue();
 }
 
 // ----------------------------------------------------------------------
@@ -943,6 +941,28 @@ jlong JNICALL ScriptMethodsResourceNamespace::createResourceCrate(JNIEnv * /*env
 
 // ----------------------------------------------------------------------
 
+jboolean JNICALL ScriptMethodsResourceNamespace::requestPmdSurvey(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z)
+{
+	if (!std::isfinite(x) || !std::isfinite(z))
+		return JNI_FALSE;
+
+	Unicode::String myParentResourceClass;
+	Unicode::String myPlanetName;
+	std::string myResourceTypeName;
+	JavaString resourceClass(parentResourceClass);
+	JavaString resourceType(resourceTypeName);
+	JavaString planet(planetName);
+	if (!JavaLibrary::convert(resourceClass, myParentResourceClass) || !JavaLibrary::convert(resourceType, myResourceTypeName) || !JavaLibrary::convert(planet, myPlanetName))
+		return JNI_FALSE;
+
+	std::string const myParentResourceClassName = Unicode::wideToNarrow(myParentResourceClass);
+	std::string const myPlanetNameString = Unicode::wideToNarrow(myPlanetName);
+	SurveySystem::getInstance().requestPmdSurvey(NetworkId(player), NetworkId(callbackTarget), myParentResourceClassName, myResourceTypeName, myPlanetNameString, Vector(x, 0.0f, z), 64, 3);
+	return JNI_TRUE;
+}
+
+// ----------------------------------------------------------------------
+
 jobjectArray JNICALL ScriptMethodsResourceNamespace::requestResourceList(JNIEnv * env, jobject /*self*/, jobject loc, jfloat minDensity, jfloat maxDensity, jstring resourceClass)
 {
 	if (loc == 0)
@@ -1045,29 +1065,6 @@ jobjectArray JNICALL ScriptMethodsResourceNamespace::requestResourceList(JNIEnv 
 	}
 
 	return densityArray->getReturnValue();
-}
-
-// ----------------------------------------------------------------------
-
-jboolean JNICALL ScriptMethodsResourceNamespace::requestPmdSurvey(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z)
-{
-	if (!std::isfinite(x) || !std::isfinite(z))
-		return JNI_FALSE;
-
-	Unicode::String myParentResourceClass;
-	Unicode::String myPlanetName;
-	std::string myResourceTypeName;
-	JavaString resourceClass(parentResourceClass);
-	JavaString resourceType(resourceTypeName);
-	JavaString planet(planetName);
-	if (!JavaLibrary::convert(resourceClass, myParentResourceClass) || !JavaLibrary::convert(resourceType, myResourceTypeName) || !JavaLibrary::convert(planet, myPlanetName))
-		return JNI_FALSE;
-
-	std::string const myParentResourceClassName = Unicode::wideToNarrow(myParentResourceClass);
-	std::string const myPlanetNameString = Unicode::wideToNarrow(myPlanetName);
-	DEBUG_REPORT_LOG(true, ("[PMD-SURVEY] bridge queue player=%s callback=%s class=%s resource=%s planet=%s x=%f z=%f\n", NetworkId(player).getValueString().c_str(), NetworkId(callbackTarget).getValueString().c_str(), myParentResourceClassName.c_str(), myResourceTypeName.c_str(), myPlanetNameString.c_str(), x, z));
-	SurveySystem::getInstance().requestPmdSurvey(NetworkId(player), NetworkId(callbackTarget), myParentResourceClassName, myResourceTypeName, myPlanetNameString, Vector(x, 0.0f, z), 64, 3);
-	return JNI_TRUE;
 }
 
 // ----------------------------------------------------------------------

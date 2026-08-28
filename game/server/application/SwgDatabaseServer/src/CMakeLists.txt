@@ -69,6 +69,8 @@ set(SHARED_SOURCES
     shared/core/MiscPack.cpp
     shared/core/ObjvarNameManager.cpp
     shared/core/ObjvarNameManager.h
+	shared/core/PlanetaryMiningJobManager.cpp
+	shared/core/PlanetaryMiningJobManager.h
     shared/core/CommoditiesSnapshot.cpp
     shared/core/CommoditiesSnapshot.h
     shared/core/SwgDatabaseServer.cpp
@@ -132,6 +134,8 @@ set(SHARED_SOURCES
     shared/tasks/TaskLocateStructure.h
     shared/tasks/TaskMoveToPlayer.cpp
     shared/tasks/TaskMoveToPlayer.h
+	shared/tasks/TaskPlanetaryMiningJob.cpp
+	shared/tasks/TaskPlanetaryMiningJob.h
     shared/tasks/TaskRestoreCharacter.cpp
     shared/tasks/TaskRestoreCharacter.h
     shared/tasks/TaskRestoreHouse.cpp

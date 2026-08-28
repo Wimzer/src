@@ -367,6 +367,10 @@ set(SHARED_SOURCES
 	shared/gameGameServer/PersistedPlayerMessage.h
 	shared/gameGameServer/PlayedTimeAccumMessage.cpp
 	shared/gameGameServer/PlayedTimeAccumMessage.h
+	shared/gameGameServer/PlanetaryMiningJobRequest.cpp
+	shared/gameGameServer/PlanetaryMiningJobRequest.h
+	shared/gameGameServer/PlanetaryMiningJobResponse.cpp
+	shared/gameGameServer/PlanetaryMiningJobResponse.h
 	shared/gameGameServer/ProfilerOperationMessage.cpp
 	shared/gameGameServer/ProfilerOperationMessage.h
 	shared/gameGameServer/ReloadAdminTableMessage.cpp

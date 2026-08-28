@@ -130,6 +130,7 @@
 #include "serverNetworkMessages/MessageToAckMessage.h"
 #include "serverNetworkMessages/NewClient.h"
 #include "serverNetworkMessages/PersistedPlayerMessage.h"
+#include "serverNetworkMessages/PlanetaryMiningJobResponse.h"
 #include "serverNetworkMessages/PlayedTimeAccumMessage.h"
 #include "serverNetworkMessages/PopulationListMessage.h"
 #include "serverNetworkMessages/PreloadRequestCompleteMessage.h"
@@ -452,6 +453,7 @@ m_chatServerConnection                (0)
 	connectToMessage("RetrievedItemLoadMessage");
 	connectToMessage("UnloadProxyMessage");
 	connectToMessage("BiographyMessage");
+	connectToMessage("PlanetaryMiningJobResponse");
 	connectToMessage("LoadContainedObjectMessage");
 	connectToMessage("LoadContentsMessage");
 	connectToMessage("FirstPlanetGameServerIdMessage");
@@ -1988,6 +1990,29 @@ void GameServer::receiveMessage(const MessageDispatch::Emitter & source, const M
 			ri = static_cast<GameNetworkMessage const &>(message).getByteStream().begin();
 			BiographyMessage const msg(ri);
 			BiographyManager::onBiographyRetrieved(msg.getOwner(), msg.getBio());
+			break;
+		}
+		case constcrc("PlanetaryMiningJobResponse") : {
+			MESSAGE_PROFILER_BLOCK("PlanetaryMiningJobResponse");
+			ri = static_cast<GameNetworkMessage const &>(message).getByteStream().begin();
+			PlanetaryMiningJobResponse const msg(ri);
+			ServerObject const * const character = safe_cast<ServerObject const *>(NetworkIdManager::getObjectById(msg.getCharacterId()));
+			if (!character || !character->isAuthoritative() || msg.getCallbackTarget() != msg.getCharacterId())
+				break;
+
+			std::string const operationId = std::string(msg.getReserve() ? "reserve:" : "release:") + std::to_string(msg.getJobSequence());
+			ScriptParams params;
+			params.addParam(msg.getResult() == 0, "success");
+			params.addParam(operationId.c_str(), "operationId");
+			params.addParam(msg.getJobCount(), "newValue");
+			params.addParam(msg.getResult(), "result");
+			ScriptDictionaryPtr dictionary;
+			GameScriptObject::makeScriptDictionary(params, dictionary);
+			if (dictionary.get())
+			{
+				dictionary->serialize();
+				MessageToQueue::getInstance().sendMessageToJava(msg.getCallbackTarget(), "handlePlanetaryMiningDroidAccountJobResponse", dictionary->getSerializedData(), 0, false);
+			}
 			break;
 		}
 		case constcrc("LoadContainedObjectMessage") : {

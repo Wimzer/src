@@ -10,6 +10,7 @@
 
 #include "SwgDatabaseServer/DataCleanupManager.h"
 #include "SwgDatabaseServer/ObjvarNameManager.h"
+#include "SwgDatabaseServer/PlanetaryMiningJobManager.h"
 #include "SwgDatabaseServer/SwgLoader.h"
 #include "SwgDatabaseServer/SwgPersister.h"
 #include "serverDatabase/ConfigServerDatabase.h"
@@ -52,6 +53,7 @@ void SwgDatabaseServer::run()
 	SwgPersister::install();
 	SwgLoader::install();
 	DataLookup::install();
+	PlanetaryMiningJobManager::install();
 	LazyDeleter::install();
 	ObjvarNameManager::install();
 	MessageToManager::install();
@@ -63,12 +65,14 @@ void SwgDatabaseServer::run()
 	cleanupManager.runDailyCleanup();
 	
 	DatabaseProcess::run();
+	PlanetaryMiningJobManager::getInstance().shutdown();
 }
 
 
 // ----------------------------------------------------------------------
 void SwgDatabaseServer::frameTick()
 {
+	PlanetaryMiningJobManager::getInstance().update();
 	tickSwgMetrics();
 }
 
@@ -285,4 +289,3 @@ void SwgDatabaseServer::tickSwgMetrics()
 
 
 // ======================================================================
-

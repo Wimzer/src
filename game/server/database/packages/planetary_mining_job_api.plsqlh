@@ -1,0 +1,30 @@
+create or replace package planetary_mining_job_api
+as
+	result_success constant integer := 0;
+	result_limit_reached constant integer := 1;
+	result_character_conflict constant integer := 2;
+	result_invalid_character constant integer := 3;
+	result_database_error constant integer := 4;
+
+	procedure reserve_job
+	(
+		p_galaxy_id varchar2,
+		p_station_id number,
+		p_character_id number,
+		p_job_sequence number,
+		p_result out number,
+		p_job_count out number
+	);
+
+	procedure release_job
+	(
+		p_galaxy_id varchar2,
+		p_station_id number,
+		p_character_id number,
+		p_job_sequence number,
+		p_result out number,
+		p_job_count out number
+	);
+end;
+/
+grant execute on planetary_mining_job_api to public;
