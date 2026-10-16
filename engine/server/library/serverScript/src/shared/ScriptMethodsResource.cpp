@@ -26,6 +26,8 @@
 #include "sharedNetworkMessages/ResourceHarvesterActivatePageMessage.h"
 #include "sharedObject/NetworkIdManager.h"
 
+#include <cmath>
+
 using namespace JNIWrappersNamespace;
 
 
@@ -40,6 +42,7 @@ namespace ScriptMethodsResourceNamespace
 	void         JNICALL activateHarvesterExtractionPage (JNIEnv *env, jobject self, jlong player, jlong harvester);
 	jboolean     JNICALL requestResourceListForSurvey(JNIEnv *env, jobject self, jlong player, jlong tool, jstring parentResourceClass);
 	jboolean     JNICALL requestSurvey(JNIEnv *env, jobject self, jlong player, jstring parentResourceClass, jstring resourceTypeName, jint surveyRange, jint numPoints);
+	jboolean     JNICALL requestPmdSurvey(JNIEnv *env, jobject self, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z);
 	jlong        JNICALL pickRandomNonDepeletedResource(JNIEnv *env, jobject self, jstring parentResourceClass);
 	jint         JNICALL oneTimeHarvest(JNIEnv *env, jobject self, jlong resourceType, jint amount, jobject where);
 	jlong        JNICALL getResourceContainerResourceType(JNIEnv *env, jobject self, jlong resourceContainer);
@@ -54,6 +57,7 @@ namespace ScriptMethodsResourceNamespace
 	jboolean     JNICALL isResourceClassDerivedFrom(JNIEnv *env, jobject self, jstring resourceClass, jstring parentResourceClass);
 	jlong        JNICALL getResourceTypeByName(JNIEnv *env, jobject self, jstring typeName);
 	jstring      JNICALL getResourceContainerForType(JNIEnv *env, jobject self, jlong resourceType);
+	jint         JNICALL getResourceDepletionTime(JNIEnv *env, jobject self, jlong resourceType);
 	jstring      JNICALL getResourceName(JNIEnv *env, jobject self, jlong resourceType);
 	jobjectArray JNICALL getResourceNames(JNIEnv *env, jobject self, jlongArray resourceTypes);
 	jstring      JNICALL getResourceClassName(JNIEnv *env, jobject self, jstring resourceClass);
@@ -96,6 +100,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("isResourceClassDerivedFrom","(Ljava/lang/String;Ljava/lang/String;)Z",isResourceClassDerivedFrom),
 	JF("_getResourceTypeByName","(Ljava/lang/String;)J",getResourceTypeByName),
 	JF("_getResourceContainerForType","(J)Ljava/lang/String;",getResourceContainerForType),
+	JF("_getResourceDepletionTime","(J)I",getResourceDepletionTime),
 	JF("_getResourceName", "(J)Ljava/lang/String;", getResourceName),
 	JF("_getResourceNames", "([J)[Ljava/lang/String;", getResourceNames),
 	JF("getResourceClassName", "(Ljava/lang/String;)Ljava/lang/String;", getResourceClassName),
@@ -109,6 +114,7 @@ const JNINativeMethod NATIVES[] = {
 	JF("hasResourceType", "(Ljava/lang/String;)Z", hasResourceType),
 	JF("_createResourceCrate", "(JIJ)J", createResourceCrate),
 	JF("requestResourceList", "(Lscript/location;FFLjava/lang/String;)[Lscript/resource_density;", requestResourceList),
+	JF("_requestPmdSurvey", "(JJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;FF)Z", requestPmdSurvey),
 	JF("_getResourceAttributes", "(J)[Lscript/resource_attribute;", getResourceAttributes),
 	JF("_getScaledResourceAttributes", "(JLjava/lang/String;)[Lscript/resource_attribute;", getScaledResourceAttributes),
 	JF("_getResourceAttribute", "(JLjava/lang/String;)I", getResourceAttribute),
@@ -469,6 +475,17 @@ jstring JNICALL ScriptMethodsResourceNamespace::getResourceContainerForType(JNIE
 
 // ----------------------------------------------------------------------
 
+jint JNICALL ScriptMethodsResourceNamespace::getResourceDepletionTime(JNIEnv * /*env*/, jobject /*self*/, jlong resourceType)
+{
+	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeById(NetworkId(resourceType));
+	if (!typeObj)
+		return 0;
+
+	return static_cast<jint>(typeObj->getDepletedTimestamp());
+}
+
+// ----------------------------------------------------------------------
+
 jstring JNICALL ScriptMethodsResourceNamespace::getResourceName(JNIEnv * /*env*/, jobject /*self*/, jlong resourceType)
 {
 	if (resourceType == 0)
@@ -612,8 +629,6 @@ jlongArray JNICALL ScriptMethodsResourceNamespace::getResourceTypes(JNIEnv * env
 	}
 	return jtypes->getReturnValue();
 }
-
-// ----------------------------------------------------------------------
 
 jstring JNICALL ScriptMethodsResourceNamespace::getResourceClass(JNIEnv * /*env*/, jobject /*self*/, jlong resourceType)
 {
@@ -880,6 +895,28 @@ jlong JNICALL ScriptMethodsResourceNamespace::createResourceCrate(JNIEnv * /*env
 	crate = safe_cast<ResourceContainerObject *>(container->combineResourceContainers(*crate));
 
 	return (crate->getNetworkId()).getValue();
+}
+
+// ----------------------------------------------------------------------
+
+jboolean JNICALL ScriptMethodsResourceNamespace::requestPmdSurvey(JNIEnv * /*env*/, jobject /*self*/, jlong player, jlong callbackTarget, jstring parentResourceClass, jstring resourceTypeName, jstring planetName, jfloat x, jfloat z)
+{
+	if (!std::isfinite(x) || !std::isfinite(z))
+		return JNI_FALSE;
+
+	Unicode::String myParentResourceClass;
+	Unicode::String myPlanetName;
+	std::string myResourceTypeName;
+	JavaString resourceClass(parentResourceClass);
+	JavaString resourceType(resourceTypeName);
+	JavaString planet(planetName);
+	if (!JavaLibrary::convert(resourceClass, myParentResourceClass) || !JavaLibrary::convert(resourceType, myResourceTypeName) || !JavaLibrary::convert(planet, myPlanetName))
+		return JNI_FALSE;
+
+	std::string const myParentResourceClassName = Unicode::wideToNarrow(myParentResourceClass);
+	std::string const myPlanetNameString = Unicode::wideToNarrow(myPlanetName);
+	SurveySystem::getInstance().requestPmdSurvey(NetworkId(player), NetworkId(callbackTarget), myParentResourceClassName, myResourceTypeName, myPlanetNameString, Vector(x, 0.0f, z), 64, 3);
+	return JNI_TRUE;
 }
 
 // ----------------------------------------------------------------------

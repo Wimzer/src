@@ -49,6 +49,11 @@ void SurveySystem::requestSurvey(const NetworkId &playerId, const std::string &p
 	NonCriticalTaskQueue::getInstance().addTask(new TaskSurvey(playerId, parentResourceClassName, resourceTypeName, location, surveyRange, numPoints));
 }
 
+void SurveySystem::requestPmdSurvey(const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const
+{
+	NonCriticalTaskQueue::getInstance().addTask(new TaskPmdSurvey(playerId, callbackTarget, parentResourceClassName, resourceTypeName, planetName, location, surveyRange, numPoints));
+}
+
 // ======================================================================
 
 SurveySystem::TaskGetResourceList::TaskGetResourceList(const NetworkId &playerId, const NetworkId& surveyTool, const std::string &parentResourceClassName) :
@@ -174,6 +179,91 @@ bool SurveySystem::TaskSurvey::run()
 	{
 		// TODO: Survey is not valid -- what to do?
 	}
+	return true;
+}
+
+// ======================================================================
+
+SurveySystem::TaskPmdSurvey::TaskPmdSurvey(const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) :
+	m_playerId                (playerId),
+	m_callbackTarget          (callbackTarget),
+	m_parentResourceClassName (new std::string(parentResourceClassName)),
+	m_resourceTypeName        (new std::string(resourceTypeName)),
+	m_planetName              (new std::string(planetName)),
+	m_location                (location),
+	m_surveyRange             (surveyRange),
+	m_numPoints               (numPoints)
+{
+}
+
+// ----------------------------------------------------------------------
+
+SurveySystem::TaskPmdSurvey::~TaskPmdSurvey()
+{
+	delete m_parentResourceClassName;
+	delete m_resourceTypeName;
+	delete m_planetName;
+	m_parentResourceClassName = 0;
+	m_resourceTypeName = 0;
+	m_planetName = 0;
+}
+
+// ----------------------------------------------------------------------
+
+bool SurveySystem::TaskPmdSurvey::run()
+{
+	ServerObject * const callbackTarget = ServerWorld::findObjectByNetworkId(m_callbackTarget);
+	Client const * const client = GameServer::getInstance().getClient(m_playerId);
+	std::vector<float> xVals;
+	std::vector<float> zVals;
+	std::vector<float> efficiencyVals;
+	ResourceTypeObject const * const typeObj = ServerUniverse::getInstance().getResourceTypeByName(*m_resourceTypeName);
+	ResourceClassObject const * const parentClass = ServerUniverse::getInstance().getResourceClassByName(*m_parentResourceClassName);
+	PlanetObject const * const planet = ServerUniverse::getInstance().getPlanetByName(*m_planetName);
+
+	if (client && callbackTarget && typeObj && parentClass && planet && typeObj->isDerivedFrom(*parentClass))
+	{
+		std::vector<ResourceTypeObject const *> availableResources;
+		planet->getAvailableResourceList(availableResources, *parentClass);
+		bool resourceIsAvailable = false;
+		for (std::vector<ResourceTypeObject const *>::const_iterator i = availableResources.begin(); i != availableResources.end(); ++i)
+		{
+			if (*i == typeObj)
+			{
+				resourceIsAvailable = true;
+				break;
+			}
+		}
+
+		ResourcePoolObject const * const pool = resourceIsAvailable ? typeObj->getPoolForPlanet(*planet) : nullptr;
+		if (pool && (m_numPoints >= 2) && (m_numPoints <= 64) && (m_surveyRange >= 1) && (m_surveyRange <= 4096) && (m_numPoints <= m_surveyRange + 1))
+		{
+			int const distBetweenPoints = m_surveyRange / (m_numPoints - 1);
+			int const radius = m_surveyRange / 2;
+			xVals.reserve(m_numPoints * m_numPoints);
+			zVals.reserve(m_numPoints * m_numPoints);
+			efficiencyVals.reserve(m_numPoints * m_numPoints);
+			for (int xIndex = 0; xIndex < m_numPoints; ++xIndex)
+				for (int zIndex = 0; zIndex < m_numPoints; ++zIndex)
+				{
+					float const x = m_location.x - radius + (xIndex * distBetweenPoints);
+					float const z = m_location.z - radius + (zIndex * distBetweenPoints);
+					xVals.push_back(x);
+					zVals.push_back(z);
+					efficiencyVals.push_back(pool->getEfficiencyAtLocation(x, z));
+				}
+		}
+	}
+
+	if (callbackTarget)
+	{
+		ScriptParams params;
+		params.addParam(xVals);
+		params.addParam(zVals);
+		params.addParam(efficiencyVals);
+		IGNORE_RETURN(callbackTarget->getScriptObject()->trigAllScripts(Scripting::TRIG_SURVEY_DATA_RECEIVED, params));
+	}
+
 	return true;
 }
 

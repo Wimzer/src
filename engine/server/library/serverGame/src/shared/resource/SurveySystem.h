@@ -26,6 +26,7 @@ class SurveySystem : public Singleton2<SurveySystem>
   public:
 	void requestResourceListForSurvey  (const NetworkId &playerId, const NetworkId &surveyTool, const std::string &parentResourceClassName) const;
 	void requestSurvey                 (const NetworkId &playerId, const std::string &parentResourceClassName, const std::string &resourceTypeName, const Vector &location, int surveyRange, int numPoints) const;
+	void requestPmdSurvey              (const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints) const;
 	
   public:
 	SurveySystem                       ();
@@ -67,6 +68,28 @@ class SurveySystem : public Singleton2<SurveySystem>
 	  private:
 		TaskSurvey                     (const TaskSurvey&);
 		TaskSurvey & operator=         (const TaskSurvey&);
+	};
+
+	class TaskPmdSurvey : public NonCriticalTaskQueue::TaskRequest
+	{
+	  public:
+		TaskPmdSurvey                  (const NetworkId &playerId, const NetworkId &callbackTarget, const std::string &parentResourceClassName, const std::string &resourceTypeName, const std::string &planetName, const Vector &location, int surveyRange, int numPoints);
+		virtual ~TaskPmdSurvey         ();
+		virtual bool run                ();
+
+	  private:
+		const NetworkId                 m_playerId;
+		const NetworkId                 m_callbackTarget;
+		const std::string *             m_parentResourceClassName;
+		const std::string *             m_resourceTypeName;
+		const std::string *             m_planetName;
+		Vector                          m_location;
+		int                             m_surveyRange;
+		int                             m_numPoints;
+
+	  private:
+		TaskPmdSurvey                  (const TaskPmdSurvey&);
+		TaskPmdSurvey & operator=      (const TaskPmdSurvey&);
 	};
 };
 
