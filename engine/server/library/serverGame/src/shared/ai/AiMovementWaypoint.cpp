@@ -26,9 +26,19 @@
 #include "sharedMath/Ray3d.h"
 #include "sharedTerrain/TerrainObject.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 using namespace Scripting;
+
+namespace AiMovementWaypointNamespace
+{
+	// Consecutive refused steps before a calm mounted patrol warps to its waypoint.
+	int const cms_mountedPatrolStuckLimit = 30;
+}
+
+using namespace AiMovementWaypointNamespace;
 
 float computeMovementModifier (CreatureObject * const object)
 {
@@ -262,6 +272,20 @@ AiStateResult AiMovementWaypoint::stateMoving ( float time )
 		return triggerTargetLost();
 	}
 
+	// A calm mounted patrol refuses blocked steps. When the blocker is something the
+	// avoidance query does not see, it would stand still forever; warp to the waypoint as
+	// AiMovementFollow does for a stuck follower (user: teleport as last resort).
+	if (m_controller->getStuckCounter() >= cms_mountedPatrolStuckLimit && m_controller->getCalmMountedPatrolMount())
+	{
+		CreatureObject const * const rider = m_controller->getCreature();
+		Vector const from = rider->getPosition_w();
+		Vector const to = getWaypoint().getPosition_w();
+		LOG("npc_mount_squad", ("event=stuckWarp reason=refusedSteps rider=%s x=%.1f z=%.1f toX=%.1f toZ=%.1f",
+			rider->getNetworkId().getValueString().c_str(), from.x, from.z, to.x, to.z));
+		warpToLocation(getWaypoint());
+		return ASR_Continue;
+	}
+
 	bool const reachedGoal = moveTowards(getWaypoint(), getFinalWaypoint(), time);
 
 	if (reachedGoal)
@@ -316,6 +340,14 @@ AiStateResult AiMovementWaypoint::stateAvoiding ( float time )
 
 	if(m_avoidanceStuckTime > ConfigServerGame::getBehaviorMaxAvoidanceStuckTime())
 	{
+		if (m_controller->getCalmMountedPatrolMount())
+		{
+			CreatureObject const * const rider = m_controller->getCreature();
+			Vector const from = rider->getPosition_w();
+			Vector const to = getWaypoint().getPosition_w();
+			LOG("npc_mount_squad", ("event=stuckWarp rider=%s x=%.1f z=%.1f toX=%.1f toZ=%.1f",
+				rider->getNetworkId().getValueString().c_str(), from.x, from.z, to.x, to.z));
+		}
 		warpToLocation(getWaypoint());
 		m_avoidanceStuckTime = 0.0f;
 		return triggerDoneAvoiding();
@@ -513,6 +545,30 @@ float AiMovementWaypoint::getDesiredSpeed ( void ) const
 		else
 		{
 			result = creatureOwner->getWalkSpeed() * computeMovementModifier(creatureOwner);
+			if (m_controller->getCalmMountedPatrolMount() && std::isfinite(result) && result > 0.0f)
+			{
+				// User-selected steady headroom: the mount walks at 75% of the slowest
+				// of itself and both escorts, so the escorts keep pace easily. When the
+				// escorts cannot be confirmed, keep walking at 75% of the mount's own
+				// pace rather than stopping the patrol.
+				float slowest = result;
+				CreatureObject * escort1 = nullptr;
+				CreatureObject * escort2 = nullptr;
+				if (m_controller->getCalmPatrolEscorts(escort1, escort2))
+				{
+					float const walk1 = escort1->getWalkSpeed();
+					float const walk2 = escort2->getWalkSpeed();
+					float const modifier1 = computeMovementModifier(escort1);
+					float const modifier2 = computeMovementModifier(escort2);
+					float const limit1 = walk1 * modifier1;
+					float const limit2 = walk2 * modifier2;
+					if (std::isfinite(walk1) && walk1 > 0.0f && std::isfinite(walk2) && walk2 > 0.0f
+						&& std::isfinite(modifier1) && modifier1 > 0.0f && std::isfinite(modifier2) && modifier2 > 0.0f
+						&& std::isfinite(limit1) && std::isfinite(limit2))
+						slowest = std::min(slowest, std::min(limit1, limit2));
+				}
+				result = 0.75f * slowest;
+			}
 		}
 	}
 
@@ -551,7 +607,7 @@ bool AiMovementWaypoint::findObstacle()
 	// Collide with the statics in the world
 	{
 		bool const restrictToSameCell = true;
-		Capsule const capsule(creaturePosition_p, creaturePosition_p + delta, m_controller->getCreatureRadius());
+		Capsule const capsule(creaturePosition_p, creaturePosition_p + delta, m_controller->getPatrolNavigationRadius());
 		
 		CollisionWorld::getDatabase()->queryFor(SpatialDatabase::Q_Static, m_controller->getCreatureCell(), restrictToSameCell, capsule, collidedWith);
 	}

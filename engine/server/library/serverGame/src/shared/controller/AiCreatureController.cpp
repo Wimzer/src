@@ -1376,18 +1376,156 @@ float AICreatureController::getCreatureRadius ( void ) const
 
 // ----------------------------------------------------------------------
 
+CreatureObject const * AICreatureController::getCalmMountedPatrolMount() const
+{
+	if (getMovementType() != AMT_patrol || isRetreating())
+		return nullptr;
+
+	CreatureObject const * const rider = getCreature();
+	if (!rider || rider->isPlayerControlled() || rider->isDead() || rider->isIncapacitated()
+		|| rider->isInCombat() || !rider->getState(States::RidingMount))
+		return nullptr;
+
+	DynamicVariableList const & objVars = rider->getObjVars();
+	std::string profile;
+	NetworkId coordinator;
+	NetworkId configuredMount;
+	int role = -1;
+	int setupComplete = 0;
+	// ROLE_LEADER is 0 in systems/npc_mount/squad_state.java. These are the
+	// existing script-owned bindings, not an independent native squad roster.
+	if (objVars.hasItem("npcMount.retired")
+		|| !objVars.getItem("npcMountSquad.profile", profile) || profile.empty()
+		|| !objVars.getItem("npcMountSquad.coordinator", coordinator) || !coordinator.isValid()
+		|| !objVars.getItem("npcMountSquad.role", role) || role != 0
+		|| !objVars.getItem("npcMount.setupComplete", setupComplete) || !setupComplete
+		|| !objVars.getItem("npcMount.mount", configuredMount) || !configuredMount.isValid())
+		return nullptr;
+
+	CreatureObject const * const mount = rider->getMountedCreature();
+	if (!mount || mount == rider || mount->isPlayerControlled() || mount->isDead()
+		|| mount->isIncapacitated() || mount->isInCombat()
+		|| mount->getNetworkId() != configuredMount || !mount->getState(States::MountedCreature)
+		|| mount->getPrimaryMountingRider() != rider)
+		return nullptr;
+
+	return mount;
+}
+
+// ----------------------------------------------------------------------
+
+float AICreatureController::getPatrolNavigationRadius() const
+{
+	CreatureObject const * const mount = getCalmMountedPatrolMount();
+	return mount ? std::max(getCreatureRadius(), mount->getRadius()) : getCreatureRadius();
+}
+
+// ----------------------------------------------------------------------
+
+bool AICreatureController::getCalmPatrolEscorts(CreatureObject *& escort1, CreatureObject *& escort2) const
+{
+	escort1 = nullptr;
+	escort2 = nullptr;
+	if (!getCalmMountedPatrolMount())
+		return false;
+
+	CreatureObject const * const leader = getCreature();
+	if (!leader->isInWorldCell())
+		return false;
+
+	DynamicVariableList const & leaderVars = leader->getObjVars();
+	NetworkId coordinatorId;
+	std::string profile;
+	if (!leaderVars.getItem("npcMountSquad.coordinator", coordinatorId)
+		|| !leaderVars.getItem("npcMountSquad.profile", profile))
+		return false;
+
+	Object * const coordinatorObject = NetworkIdManager::getObjectById(coordinatorId);
+	ServerObject const * const coordinator = coordinatorObject ? coordinatorObject->asServerObject() : nullptr;
+	if (!coordinator)
+		return false;
+
+	DynamicVariableList const & coordinatorVars = coordinator->getObjVars();
+	std::string coordinatorProfile;
+	int state = -1;
+	int epoch = 0;
+	int generation = 0;
+	std::vector<NetworkId> members;
+	// Existing script contract: PATROLLING=2; members[0/1/2]=leader/escorts.
+	if (!coordinatorVars.getItem("npcMountSquad.coordinator.profile", coordinatorProfile) || coordinatorProfile != profile
+		|| !coordinatorVars.getItem("npcMountSquad.coordinator.state", state) || state != 2
+		|| !coordinatorVars.getItem("npcMountSquad.coordinator.epoch", epoch) || epoch <= 0
+		|| !coordinatorVars.getItem("npcMountSquad.coordinator.generation", generation) || generation <= 0
+		|| !coordinatorVars.getItem("npcMountSquad.coordinator.members", members) || members.size() != 3
+		|| members[0] != leader->getNetworkId() || !members[1].isValid() || !members[2].isValid()
+		|| members[0] == members[1] || members[0] == members[2] || members[1] == members[2])
+		return false;
+
+	CreatureObject * escorts[2] = {nullptr, nullptr};
+	for (int role = 0; role < 3; ++role)
+	{
+		CreatureObject const * member = leader;
+		if (role != 0)
+		{
+			Object * const memberObject = NetworkIdManager::getObjectById(members[role]);
+			ServerObject * const serverMember = memberObject ? memberObject->asServerObject() : nullptr;
+			CreatureObject * const escort = serverMember ? serverMember->asCreatureObject() : nullptr;
+			if (!escort || escort->isPlayerControlled() || escort->isDead() || escort->isIncapacitated()
+				|| escort->isInCombat() || escort->getState(States::RidingMount) || escort->getState(States::MountedCreature)
+				|| escort->getMountedCreature() || !escort->isInWorldCell() || escort->getSceneId() != leader->getSceneId())
+				return false;
+
+			AICreatureController const * const controller = asAiCreatureController(escort->getController());
+			if (!controller || controller->isRetreating())
+				return false;
+			escorts[role - 1] = escort;
+			member = escort;
+		}
+
+		DynamicVariableList const & memberVars = member->getObjVars();
+		std::string memberProfile;
+		NetworkId memberCoordinator;
+		int memberRole = -1;
+		int memberEpoch = 0;
+		int memberGeneration = 0;
+		int permission = 0;
+		if (!memberVars.getItem("npcMountSquad.profile", memberProfile) || memberProfile != profile
+			|| !memberVars.getItem("npcMountSquad.coordinator", memberCoordinator) || memberCoordinator != coordinatorId
+			|| !memberVars.getItem("npcMountSquad.role", memberRole) || memberRole != role
+			|| !memberVars.getItem("npcMountSquad.epoch", memberEpoch) || memberEpoch != epoch
+			|| !memberVars.getItem("npcMountSquad.generation", memberGeneration) || memberGeneration != generation
+			|| !memberVars.getItem("npcMountSquad.patrolPermission", permission) || permission != generation)
+			return false;
+	}
+
+	// Publish only a complete, current pair. Never retain these pointers or a cap.
+	escort1 = escorts[0];
+	escort2 = escorts[1];
+	return true;
+}
+
+// ----------------------------------------------------------------------
+
 void AICreatureController::moveCreature( CellProperty const * newCell, Vector const & inNewPosition, bool testMove )
 {
 	if(testMove)
 	{
-		CanMoveResult result = CollisionWorld::canMove(getCreature(),inNewPosition,0.05f,false,true,false);
+		CreatureObject const * const mount = getCalmMountedPatrolMount();
+		float const moveRadius = mount ? std::max(getCreatureRadius(), mount->getRadius()) : 0.05f;
+		CanMoveResult result = CollisionWorld::canMove(getCreature(),inNewPosition,moveRadius,false,true,false);
 
-		if((result == CMR_MoveOK) || (result == CMR_HitObstacle))
+		if((result == CMR_MoveOK) || (!mount && result == CMR_HitObstacle))
 		{
 			m_stuckCounter = 0;
 		}
 		else
 		{
+			if (mount && m_stuckCounter == 0)
+			{
+				Vector const at = getCreature()->getPosition_w();
+				LOG("npc_mount_squad", ("event=stepRefused rider=%s result=%d x=%.1f z=%.1f",
+					getCreature()->getNetworkId().getValueString().c_str(), static_cast<int>(result), at.x, at.z));
+			}
 			m_stuckCounter++;
 
 			return;
@@ -1520,7 +1658,8 @@ bool AICreatureController::moveAlongGround( CellProperty const * targetCell, Vec
 		curMoveType = m_movement->getType();
 	}
 
-	bool testCollisions = m_inPathfindingRegion || curMoveType == AMT_follow || curMoveType == AMT_flee;
+	bool testCollisions = m_inPathfindingRegion || curMoveType == AMT_follow || curMoveType == AMT_flee
+		|| getCalmMountedPatrolMount() != nullptr;
 
 	moveCreature(creatureCell,stepGoal,testCollisions);
 

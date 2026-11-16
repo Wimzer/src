@@ -352,7 +352,7 @@ AiStateResult AiMovementPathFollow::cutPath()
 
 		if (delta.magnitudeSquared() < sqr(s_maxCutDistance))
 		{
-			float const moveRadius = creatureOwner->getRadius();
+			float const moveRadius = m_controller->getPatrolNavigationRadius();
 			bool const checkY = true;
 			bool const checkFlora = true; // statics
 			bool const checkFauna = false; // dynamics
@@ -386,7 +386,7 @@ AiStateResult AiMovementPathFollow::cutPath()
 			if (iterPath->isCuttable())
 			{
 				Vector const finalPosition_p = iterPath->getPosition_p(m_controller->getCreatureCell());
-				float const moveRadius = creatureOwner->getRadius();
+				float const moveRadius = m_controller->getPatrolNavigationRadius();
 				bool const checkY = true;
 				bool const checkFlora = true; // statics
 				bool const checkFauna = false; // dynamics

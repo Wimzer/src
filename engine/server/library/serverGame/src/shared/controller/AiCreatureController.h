@@ -120,6 +120,10 @@ public:
 	Vector               getCreaturePosition_p   ( void ) const;
 	Vector               getCreaturePosition_w   ( void ) const;
 	float                getCreatureRadius       ( void ) const;
+	// Navigation only: never use this footprint for combat/follow separation.
+	CreatureObject const * getCalmMountedPatrolMount() const;
+	float                getPatrolNavigationRadius() const;
+	bool                 getCalmPatrolEscorts(CreatureObject *& escort1, CreatureObject *& escort2) const;
 
 	// ----------
 
